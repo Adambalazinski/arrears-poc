@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: arrears-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arrears
+      POSTGRES_PASSWORD: arrears
+      POSTGRES_DB: arrears
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U arrears -d arrears']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: arrears-mailhog
+    restart: unless-stopped
+    ports:
+      - '1025:1025' # SMTP
+      - '8025:8025' # Web UI
+
+volumes:
+  postgres-data:
