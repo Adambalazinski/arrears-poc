@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AppLoggerModule } from './common/logger/logger.module';
 import { WorkingDayModule } from './common/working-day/working-day.module';
 import { HealthController } from './health/health.controller';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { HealthController } from './health/health.controller';
     ScheduleModule.forRoot(),
     AppLoggerModule,
     WorkingDayModule,
+    AuthModule,
   ],
   controllers: [HealthController],
 })
