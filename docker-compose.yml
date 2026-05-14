@@ -6,13 +6,13 @@ services:
     environment:
       POSTGRES_USER: arrears
       POSTGRES_PASSWORD: arrears
-      POSTGRES_DB: arrears
+      POSTGRES_DB: arrears_poc
     ports:
       - '5432:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U arrears -d arrears']
+      test: ['CMD-SHELL', 'pg_isready -U arrears -d arrears_poc']
       interval: 5s
       timeout: 5s
       retries: 10
