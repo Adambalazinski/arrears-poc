@@ -1,0 +1,161 @@
+{
+  "content": [
+    {
+      "id": "lwca-inv-0001",
+      "organisationId": "demo-org",
+      "referenceId": "INV-2026-0001",
+      "grossAmount": 120000,
+      "remainAmount": 120000,
+      "dueDate": "2026-04-01",
+      "invoiceDate": "2026-03-15",
+      "status": "UNPAID",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-abc-001",
+      "property": {
+        "propertyId": "prop-001",
+        "propertyName": "Flat 2",
+        "propertyAddress1": "12 High Street",
+        "propertyAddress2": "London W1 1AA"
+      },
+      "payer": {
+        "payerId": "payer-001",
+        "firstName": "Jane",
+        "lastName": "Tenant"
+      }
+    },
+    {
+      "id": "lwca-inv-0002",
+      "organisationId": "demo-org",
+      "referenceId": "INV-2026-0002",
+      "grossAmount": 120000,
+      "remainAmount": 80000,
+      "dueDate": "2026-04-08",
+      "invoiceDate": "2026-03-22",
+      "status": "PARTIALLY_PAID",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-abc-001",
+      "property": {
+        "propertyId": "prop-001",
+        "propertyName": "Flat 2",
+        "propertyAddress1": "12 High Street",
+        "propertyAddress2": "London W1 1AA"
+      },
+      "payer": {
+        "payerId": "payer-001",
+        "firstName": "Jane",
+        "lastName": "Tenant"
+      }
+    },
+    {
+      "id": "lwca-inv-0003",
+      "organisationId": "demo-org",
+      "referenceId": "INV-2026-0003",
+      "grossAmount": 120000,
+      "remainAmount": 120000,
+      "dueDate": "2026-05-01",
+      "invoiceDate": "2026-04-15",
+      "status": "UNPAID",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-xyz-002",
+      "property": {
+        "propertyId": "prop-007",
+        "propertyName": "23 Oak Avenue",
+        "propertyAddress1": "23 Oak Avenue",
+        "propertyAddress2": "Manchester M1 2BB"
+      },
+      "payer": {
+        "payerId": "payer-002",
+        "firstName": "Sam",
+        "lastName": "Renter"
+      }
+    },
+    {
+      "id": "lwca-inv-0004",
+      "organisationId": "demo-org",
+      "referenceId": "INV-2026-0004",
+      "grossAmount": 0,
+      "remainAmount": 0,
+      "dueDate": "2026-04-01",
+      "invoiceDate": "2026-03-15",
+      "status": "PAID",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-abc-001",
+      "property": {
+        "propertyId": "prop-001",
+        "propertyName": "Flat 2",
+        "propertyAddress1": "12 High Street",
+        "propertyAddress2": "London W1 1AA"
+      },
+      "payer": {
+        "payerId": "payer-001",
+        "firstName": "Jane",
+        "lastName": "Tenant"
+      }
+    },
+    {
+      "id": "lwca-inv-0005",
+      "organisationId": "demo-org",
+      "referenceId": "INV-RECURRING-001",
+      "grossAmount": 120000,
+      "remainAmount": 120000,
+      "dueDate": "2026-06-01",
+      "invoiceDate": "2026-05-15",
+      "status": "UNPAID",
+      "paymentCycleType": "RECURRING",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-abc-001",
+      "property": {
+        "propertyId": "prop-001",
+        "propertyName": "Flat 2",
+        "propertyAddress1": "12 High Street",
+        "propertyAddress2": "London W1 1AA"
+      },
+      "payer": {
+        "payerId": "payer-001",
+        "firstName": "Jane",
+        "lastName": "Tenant"
+      }
+    },
+    {
+      "id": "lwca-inv-0006",
+      "organisationId": "demo-org",
+      "referenceId": "INV-DELETED-001",
+      "grossAmount": 120000,
+      "remainAmount": 120000,
+      "dueDate": "2026-04-01",
+      "invoiceDate": "2026-03-15",
+      "status": "DELETED",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-abc-001",
+      "property": {
+        "propertyId": "prop-001",
+        "propertyName": "Flat 2",
+        "propertyAddress1": "12 High Street",
+        "propertyAddress2": "London W1 1AA"
+      },
+      "payer": {
+        "payerId": "payer-001",
+        "firstName": "Jane",
+        "lastName": "Tenant"
+      }
+    }
+  ],
+  "totalElements": 6,
+  "totalPages": 1,
+  "size": 100,
+  "number": 0,
+  "first": true,
+  "last": true,
+  "empty": false
+}
