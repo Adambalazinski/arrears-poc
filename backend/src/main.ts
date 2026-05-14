@@ -18,7 +18,7 @@ async function bootstrap(): Promise<void> {
     logger: resolveLogLevels(),
   });
 
-  const port = Number.parseInt(process.env.PORT ?? '3000', 10);
+  const port = Number.parseInt(process.env.PORT ?? '3001', 10);
   await app.listen(port);
 
   Logger.log(`Arrears backend listening on :${port}`, 'Bootstrap');

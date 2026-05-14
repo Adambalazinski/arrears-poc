@@ -13,4 +13,4 @@ pnpm --filter backend prisma:migrate:dev
 pnpm dev
 ```
 
-Frontend: http://localhost:5173 · Backend: http://localhost:3000 · Mailhog UI: http://localhost:8025
+Frontend: http://localhost:5173 · Backend: http://localhost:3001 · Mailhog UI: http://localhost:8025
