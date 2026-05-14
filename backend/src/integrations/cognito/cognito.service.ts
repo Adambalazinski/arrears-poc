@@ -26,26 +26,33 @@ const PROACTIVE_REFRESH_WINDOW_MS = 2 * 60_000;
 @Injectable()
 export class CognitoService {
   private readonly logger = new Logger(CognitoService.name);
-  private readonly client: CognitoIdentityProviderClient;
-  private readonly clientId: string;
+  private cachedClient?: CognitoIdentityProviderClient;
+  private cachedClientId?: string;
 
   constructor(
     @Inject(CREDENTIAL_STORE) private readonly credentialStore: CredentialStore,
     @Inject(REFRESH_LOCK) private readonly lock: RefreshLock,
-  ) {
+  ) {}
+
+  private getClient(): { client: CognitoIdentityProviderClient; clientId: string } {
+    if (this.cachedClient && this.cachedClientId) {
+      return { client: this.cachedClient, clientId: this.cachedClientId };
+    }
     const poolId = requireEnv('COGNITO_USER_POOL_ID');
     const region = poolId.split('_')[0];
     if (!region) throw new Error(`Unparseable upstream Cognito pool id: ${poolId}`);
-    this.client = new CognitoIdentityProviderClient({ region });
-    this.clientId = requireEnv('COGNITO_CLIENT_ID');
+    this.cachedClient = new CognitoIdentityProviderClient({ region });
+    this.cachedClientId = requireEnv('COGNITO_CLIENT_ID');
+    return { client: this.cachedClient, clientId: this.cachedClientId };
   }
 
   /** Raw refresh call. Used by withFreshAccessToken; exposed for tests. */
   async refresh(refreshToken: string): Promise<CognitoRefreshResult> {
-    const response = await this.client.send(
+    const { client, clientId } = this.getClient();
+    const response = await client.send(
       new InitiateAuthCommand({
         AuthFlow: 'REFRESH_TOKEN_AUTH',
-        ClientId: this.clientId,
+        ClientId: clientId,
         AuthParameters: { REFRESH_TOKEN: refreshToken },
       }),
     );

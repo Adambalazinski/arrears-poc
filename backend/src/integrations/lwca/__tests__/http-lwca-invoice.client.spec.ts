@@ -113,11 +113,14 @@ describe('HttpLwcaInvoiceClient', () => {
     expect(out.map((m) => m.charge.lwcaInvoiceId)).toEqual(['inv-a', 'inv-b']);
   });
 
-  it('probe: ok=true on 200, ok=false on 401', async () => {
+  it('probe: ok=true on 200 + JSON content-type, ok=false on 401', async () => {
     let nextStatus = 200;
     mockFetch(async () =>
       nextStatus === 200
-        ? new Response('{"content":[]}', { status: 200 })
+        ? new Response('{"content":[]}', {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
         : new Response('{"error":"unauth"}', { status: 401, statusText: 'Unauthorized' }),
     );
 
@@ -128,6 +131,20 @@ describe('HttpLwcaInvoiceClient', () => {
     const bad = await client.probe('org-1', 'tok');
     expect(bad.ok).toBe(false);
     expect(bad.message).toContain('401');
+  });
+
+  it('probe: ok=false when stage returns 200 + HTML (frontend SPA host)', async () => {
+    mockFetch(async () =>
+      new Response('<!doctype html><html>...</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }),
+    );
+    const client = new HttpLwcaInvoiceClient(passthroughCognito());
+    const out = await client.probe('org-1', 'tok');
+    expect(out.ok).toBe(false);
+    expect(out.message).toMatch(/non-JSON/);
+    expect(out.message).toMatch(/text\/html/);
   });
 
   it('probe: ok=false on network failure', async () => {

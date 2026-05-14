@@ -84,9 +84,15 @@ describe('HttpRentancyClient', () => {
     expect(out.primaryEmail).toBe('a@x.com');
   });
 
-  it('probe: 200 -> ok; non-2xx -> not ok', async () => {
+  it('probe: 200 + JSON -> ok; non-2xx -> not ok', async () => {
     let status = 200;
-    mockFetch(async () => new Response('{}', { status, statusText: status === 200 ? 'OK' : 'X' }));
+    mockFetch(async () =>
+      new Response('{}', {
+        status,
+        statusText: status === 200 ? 'OK' : 'X',
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
     const client = new HttpRentancyClient(passthroughCognito());
     const ok = await client.probe('org-1', 'tok');
     expect(ok.ok).toBe(true);
@@ -94,5 +100,18 @@ describe('HttpRentancyClient', () => {
     const denied = await client.probe('org-1', 'tok');
     expect(denied.ok).toBe(false);
     expect(denied.message).toContain('403');
+  });
+
+  it('probe: 200 + non-JSON -> not ok (wrong host)', async () => {
+    mockFetch(async () =>
+      new Response('<html></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    const client = new HttpRentancyClient(passthroughCognito());
+    const out = await client.probe('org-1', 'tok');
+    expect(out.ok).toBe(false);
+    expect(out.message).toMatch(/non-JSON/);
   });
 });

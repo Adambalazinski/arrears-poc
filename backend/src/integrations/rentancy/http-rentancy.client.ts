@@ -54,8 +54,18 @@ export class HttpRentancyClient implements RentancyTenancyClient {
         headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
       });
       const latencyMs = Date.now() - started;
-      if (res.ok) return { ok: true, message: `${res.status} ${res.statusText}`, latencyMs };
-      return { ok: false, message: `${res.status} ${res.statusText}`, latencyMs };
+      if (!res.ok) {
+        return { ok: false, message: `${res.status} ${res.statusText}`, latencyMs };
+      }
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.toLowerCase().includes('json')) {
+        return {
+          ok: false,
+          message: `${res.status} ${res.statusText} — non-JSON response (content-type: ${contentType}); RENTANCY_STAGE_BASE_URL probably points at the wrong host`,
+          latencyMs,
+        };
+      }
+      return { ok: true, message: `${res.status} ${res.statusText}`, latencyMs };
     } catch (err) {
       return {
         ok: false,

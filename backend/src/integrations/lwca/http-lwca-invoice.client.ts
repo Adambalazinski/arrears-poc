@@ -58,12 +58,21 @@ export class HttpLwcaInvoiceClient implements LwcaInvoiceClient {
         headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
       });
       const latencyMs = Date.now() - started;
-      if (res.ok) return { ok: true, message: `${res.status} ${res.statusText}`, latencyMs };
-      return {
-        ok: false,
-        message: `${res.status} ${res.statusText}`,
-        latencyMs,
-      };
+      if (!res.ok) {
+        return { ok: false, message: `${res.status} ${res.statusText}`, latencyMs };
+      }
+      // Stage `/v1/api/invoice` on the frontend host returns 200 HTML for any
+      // request — auth header is ignored. Refuse to call that "OK" or admins
+      // see a green probe with credentials that won't actually work.
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.toLowerCase().includes('json')) {
+        return {
+          ok: false,
+          message: `${res.status} ${res.statusText} — non-JSON response (content-type: ${contentType}); LWCA_STAGE_BASE_URL probably points at the frontend, not the API`,
+          latencyMs,
+        };
+      }
+      return { ok: true, message: `${res.status} ${res.statusText}`, latencyMs };
     } catch (err) {
       return {
         ok: false,
