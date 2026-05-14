@@ -3,6 +3,13 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
+// Money is BigInt (pence) end-to-end per CLAUDE.md. JSON.stringify chokes on
+// BigInt by default — serialise as a string and let the client parse.
+// Done once, at process start, so every Nest response is correct.
+(BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
+  return this.toString();
+};
+
 async function bootstrap(): Promise<void> {
   // Buffer logs until Pino is wired up, then take over from the default logger.
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
