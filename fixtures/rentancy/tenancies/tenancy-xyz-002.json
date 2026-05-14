@@ -1,0 +1,15 @@
+{
+  "id": "tenancy-xyz-002",
+  "tenancyPropertyId": "prop-007",
+  "status": "ACTIVE",
+  "reference": "TN-2024-002",
+  "paymentDay": 1,
+  "tenants": ["contact-tenant-002"],
+  "guarantorIds": [],
+  "isRentGuaranteeRequired": false,
+  "askingPrice": 120000,
+  "agreedPrice": 120000,
+  "additionalCosts": [],
+  "startDate": "2025-02-01",
+  "endDate": null
+}

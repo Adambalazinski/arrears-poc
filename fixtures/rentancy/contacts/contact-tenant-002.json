@@ -1,0 +1,12 @@
+{
+  "id": "contact-tenant-002",
+  "fname": "Sam",
+  "sname": "Renter",
+  "companyName": null,
+  "emails": [
+    { "type": "PERSONAL", "email": "sam.renter@example.com" }
+  ],
+  "phones": [
+    { "type": "MOBILE", "phone": "+447700900222" }
+  ]
+}

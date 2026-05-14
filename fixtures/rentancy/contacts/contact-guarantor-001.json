@@ -1,0 +1,12 @@
+{
+  "id": "contact-guarantor-001",
+  "fname": "John",
+  "sname": "Guarantor",
+  "companyName": null,
+  "emails": [
+    { "type": "PERSONAL", "email": "john.guarantor@example.com" }
+  ],
+  "phones": [
+    { "type": "MOBILE", "phone": "+447700900111" }
+  ]
+}

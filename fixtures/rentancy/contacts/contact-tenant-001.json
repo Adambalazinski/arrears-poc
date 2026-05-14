@@ -1,0 +1,13 @@
+{
+  "id": "contact-tenant-001",
+  "fname": "Jane",
+  "sname": "Tenant",
+  "companyName": null,
+  "emails": [
+    { "type": "PERSONAL", "email": "jane.tenant@example.com" },
+    { "type": "WORK", "email": "j.tenant@work.co.uk" }
+  ],
+  "phones": [
+    { "type": "MOBILE", "phone": "+447700900000" }
+  ]
+}
