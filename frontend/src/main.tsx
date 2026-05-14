@@ -3,8 +3,9 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { HomePage } from './pages/Home';
 import { LoginPage } from './pages/Login';
+import { OrganisationsListPage } from './pages/OrganisationsList';
+import { OrganisationConfigPage } from './pages/OrganisationConfig';
 import './index.css';
 
 const queryClient = new QueryClient();
@@ -23,8 +24,12 @@ function AuthedRoutes(): JSX.Element {
   }
   return (
     <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/auth/callback" element={<HomePage />} />
+      <Route path="/" element={<OrganisationsListPage />} />
+      <Route
+        path="/organisations/:id/config"
+        element={<OrganisationConfigPage />}
+      />
+      <Route path="/auth/callback" element={<OrganisationsListPage />} />
     </Routes>
   );
 }
