@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,6 +11,11 @@ import {
   type Communication,
   type ReviewItemKind,
 } from '@prisma/client';
+import {
+  OUTLOOK_CLIENT,
+  OutboundSendError,
+  type OutboundMailer,
+} from '../../integrations/outlook/outlook.types';
 import { PrismaService } from '../../integrations/prisma/prisma.service';
 import { LwcaInvoicePollJob } from '../cases/jobs/lwca-invoice-poll.job';
 import type { DraftSnapshot } from '../chase/digest/digest.service';
@@ -82,6 +88,7 @@ export class ReviewQueueService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly poll: LwcaInvoicePollJob,
+    @Inject(OUTLOOK_CLIENT) private readonly mailer: OutboundMailer,
   ) {}
 
   list(organisationId: string): Promise<ListedReviewQueueItem[]> {
@@ -162,26 +169,30 @@ export class ReviewQueueService {
       throw new BalanceChangedError(diff);
     }
 
-    // Approve.
+    // Approve. Phase 6.2: persist the approval, attempt the send, and
+    // then either flip Communication -> SENT (resolution APPROVED_AND_SENT /
+    // EDITED_AND_SENT) or -> SEND_FAILED with the error stored on
+    // sendErrorJson. The ReviewQueueItem stays pending on send failure so
+    // the reviewer can retry once the upstream is back.
     const now = new Date();
+    const communicationId = item.communication.id;
+    const finalSubject = item.communication.subject ?? '(no subject)';
+    const finalBody = editedBodyMarkdown ?? item.communication.bodyMarkdown ?? '';
+    const finalToAddress = item.communication.toAddress;
+    if (!finalToAddress) {
+      throw new ConflictException(
+        `Communication ${communicationId} has no toAddress; cannot send`,
+      );
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.communication.update({
-        where: { id: item.communication!.id },
+        where: { id: communicationId },
         data: {
           status: CommunicationStatus.APPROVED,
           approvedAt: now,
           approvedByUserId: actorUserId,
           ...(editedBodyMarkdown !== undefined ? { bodyMarkdown: editedBodyMarkdown } : {}),
-        },
-      });
-      await tx.reviewQueueItem.update({
-        where: { id: itemId },
-        data: {
-          resolvedAt: now,
-          resolvedByUserId: actorUserId,
-          // Phase 6.2 will flip to APPROVED_AND_SENT after a successful
-          // send. Until then "approved" leaves the queue and is recorded.
-          resolution: 'APPROVED_AND_SENT',
         },
       });
       await tx.caseEvent.create({
@@ -191,14 +202,73 @@ export class ReviewQueueService {
           actorUserId,
           payloadJson: {
             reviewQueueItemId: itemId,
-            communicationId: item.communication!.id,
+            communicationId,
             edited: editedBodyMarkdown !== undefined,
           },
           occurredAt: now,
         },
       });
     });
-    return { ok: true as const };
+
+    let send: Awaited<ReturnType<OutboundMailer['sendMail']>>;
+    try {
+      send = await this.mailer.sendMail({
+        toAddress: finalToAddress,
+        subject: finalSubject,
+        bodyMarkdown: finalBody,
+      });
+    } catch (err) {
+      const errorPayload =
+        err instanceof OutboundSendError
+          ? { name: err.name, message: err.message }
+          : { name: err instanceof Error ? err.name : 'Error', message: String(err) };
+      await this.prisma.communication.update({
+        where: { id: communicationId },
+        data: {
+          status: CommunicationStatus.SEND_FAILED,
+          sendErrorJson: errorPayload,
+        },
+      });
+      this.logger.error(
+        `review-queue: send failed for communication ${communicationId} — ${errorPayload.message}`,
+      );
+      throw err;
+    }
+
+    const sentAt = send.acceptedAt;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.communication.update({
+        where: { id: communicationId },
+        data: {
+          status: CommunicationStatus.SENT,
+          sentAt,
+          outlookSentMessageId: send.messageId,
+        },
+      });
+      await tx.reviewQueueItem.update({
+        where: { id: itemId },
+        data: {
+          resolvedAt: sentAt,
+          resolvedByUserId: actorUserId,
+          resolution:
+            editedBodyMarkdown !== undefined ? 'EDITED_AND_SENT' : 'APPROVED_AND_SENT',
+        },
+      });
+      await tx.caseEvent.create({
+        data: {
+          caseId: item.caseId,
+          kind: CaseEventKind.COMMUNICATION_SENT,
+          actorUserId,
+          payloadJson: {
+            reviewQueueItemId: itemId,
+            communicationId,
+            outlookSentMessageId: send.messageId,
+          },
+          occurredAt: sentAt,
+        },
+      });
+    });
+    return { ok: true as const, messageId: send.messageId };
   }
 
   async reject(itemId: string, actorUserId: string, reason: string) {
