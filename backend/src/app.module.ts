@@ -8,6 +8,7 @@ import { PrismaModule } from './integrations/prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CasesModule } from './modules/cases/cases.module';
 import { ChargesModule } from './modules/charges/charges.module';
+import { ChaseModule } from './modules/chase/chase.module';
 import { OrganisationsModule } from './modules/organisations/organisations.module';
 import { TenanciesModule } from './modules/tenancies/tenancies.module';
 
@@ -23,6 +24,7 @@ import { TenanciesModule } from './modules/tenancies/tenancies.module';
     CasesModule,
     ChargesModule,
     TenanciesModule,
+    ChaseModule,
   ],
   controllers: [HealthController],
 })
