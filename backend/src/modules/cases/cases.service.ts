@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   CaseEventKind,
   CaseStatus,
-  ChargeStatus,
+  type ChargeStatus,
   CommunicationStatus,
   Prisma,
   type Case,
@@ -187,10 +187,26 @@ export class CasesService {
     });
   }
 
-  list(organisationId: string, status?: CaseStatus): Promise<Case[]> {
+  list(organisationId: string, status?: CaseStatus) {
     return this.prisma.case.findMany({
       where: { organisationId, ...(status ? { status } : {}) },
       orderBy: [{ status: 'asc' }, { openedAt: 'desc' }],
+      include: {
+        tenancy: true,
+        charges: {
+          select: {
+            id: true,
+            lwcaInvoiceId: true,
+            currentStage: true,
+            workingDaysOverdue: true,
+            lastKnownStatus: true,
+            lastKnownRemainAmountPence: true,
+            grossAmountPence: true,
+            dueDate: true,
+            lastSyncedAt: true,
+          },
+        },
+      },
     });
   }
 
@@ -198,6 +214,11 @@ export class CasesService {
     const found = await this.prisma.case.findUnique({
       where: { id: caseId },
       include: {
+        tenancy: {
+          include: {
+            tenancyContacts: { include: { contact: true } },
+          },
+        },
         charges: { orderBy: { dueDate: 'asc' } },
         events: { orderBy: { occurredAt: 'asc' }, take: 200 },
       },

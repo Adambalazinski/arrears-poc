@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { CaseDetailPage } from './pages/CaseDetail';
+import { CasesListPage } from './pages/CasesList';
 import { LoginPage } from './pages/Login';
 import { OrganisationsListPage } from './pages/OrganisationsList';
 import { OrganisationConfigPage } from './pages/OrganisationConfig';
@@ -29,6 +31,8 @@ function AuthedRoutes(): JSX.Element {
         path="/organisations/:id/config"
         element={<OrganisationConfigPage />}
       />
+      <Route path="/organisations/:orgId/cases" element={<CasesListPage />} />
+      <Route path="/cases/:id" element={<CaseDetailPage />} />
       <Route path="/auth/callback" element={<OrganisationsListPage />} />
     </Routes>
   );

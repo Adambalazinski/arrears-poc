@@ -49,12 +49,20 @@ export function OrganisationsListPage(): JSX.Element {
                     <div className="font-medium">{o.name}</div>
                     <code className="text-xs text-muted-foreground">{o.id}</code>
                   </div>
-                  <Link
-                    to={`/organisations/${encodeURIComponent(o.id)}/config`}
-                    className="text-sm underline"
-                  >
-                    configure →
-                  </Link>
+                  <div className="flex items-center gap-3 text-sm">
+                    <Link
+                      to={`/organisations/${encodeURIComponent(o.id)}/cases`}
+                      className="underline"
+                    >
+                      cases →
+                    </Link>
+                    <Link
+                      to={`/organisations/${encodeURIComponent(o.id)}/config`}
+                      className="underline"
+                    >
+                      configure →
+                    </Link>
+                  </div>
                 </li>
               ))}
             </ul>
