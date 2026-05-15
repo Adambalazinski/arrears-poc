@@ -2,17 +2,19 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { FixtureLwcaInvoiceClient } from '../../../../integrations/lwca/fixture-lwca-invoice.client';
 import type { LwcaInvoiceClient } from '../../../../integrations/lwca/lwca-invoice.client';
+import { FixtureRentancyClient } from '../../../../integrations/rentancy/fixture-rentancy.client';
 import type { PrismaService } from '../../../../integrations/prisma/prisma.service';
 import { ChargesService } from '../../../charges/charges.service';
+import { TenancyRefreshService } from '../../../tenancies/tenancy-refresh.service';
 import { CasesService } from '../../cases.service';
 import { LwcaInvoicePollJob } from '../lwca-invoice-poll.job';
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://arrears:arrears@localhost:5432/arrears_poc';
 
-// LWCA fixture lives at <repo>/fixtures/lwca/invoices-list.json. tests run
-// from backend/ so we point the fixture path at it explicitly.
+// Fixture locations resolved from backend/ cwd.
 const FIXTURE_PATH = '../fixtures/lwca/invoices-list.json';
+const RENTANCY_FIXTURE_DIR = '../fixtures/rentancy';
 
 const prisma = new PrismaClient({ datasources: { db: { url: DATABASE_URL } } });
 
@@ -29,6 +31,7 @@ async function wipeAll(): Promise<void> {
   await prisma.charge.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.case.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.tenancyContact.deleteMany({ where: { tenancy: { organisationId: ORG_ID } } });
+  await prisma.contact.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.tenancy.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.organisationCredential.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.organisationConfig.deleteMany({ where: { organisationId: ORG_ID } });
@@ -56,13 +59,19 @@ afterEach(async () => {
 
 function makeJob(): LwcaInvoicePollJob {
   const lwca = new FixtureLwcaInvoiceClient(FIXTURE_PATH) as LwcaInvoiceClient;
+  const rentancy = new FixtureRentancyClient(RENTANCY_FIXTURE_DIR);
   const cases = new CasesService(prisma as unknown as PrismaService);
   const charges = new ChargesService(prisma as unknown as PrismaService);
+  const tenancyRefresh = new TenancyRefreshService(
+    prisma as unknown as PrismaService,
+    rentancy,
+  );
   return new LwcaInvoicePollJob(
     prisma as unknown as PrismaService,
     lwca,
     cases,
     charges,
+    tenancyRefresh,
   );
 }
 
@@ -125,16 +134,48 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
     expect(added).toBe(3);
   });
 
-  it('upserts the Tenancy stub with property hints from LWCA', async () => {
+  it('upserts the Tenancy with LWCA property hints and Rentancy fields after case open', async () => {
     const job = makeJob();
     await job.runForOrg(ORG_ID);
     const t = await prisma.tenancy.findUniqueOrThrow({ where: { id: 'tenancy-abc-001' } });
+    // LWCA owns property display
     expect(t.propertyId).toBe('prop-001');
     expect(t.propertyName).toBe('Flat 2');
     expect(t.propertyAddress1).toBe('12 High Street');
     expect(t.propertyAddress2).toBe('London W1 1AA');
-    // Stub status until Phase 4.4 enriches from Rentancy
-    expect(t.status).toBe('UNKNOWN');
+    // Rentancy owns status / reference / rentDayOfMonth / rentAmountPence —
+    // populated by the Phase 4.4 refresh kicked off on case open.
+    expect(t.status).toBe('ACTIVE');
+    expect(t.reference).toBe('TN-2024-001');
+    expect(t.rentDayOfMonth).toBe(1);
+    expect(t.rentAmountPence).toBe(120000n);
+  });
+
+  it('pulls tenant + guarantor contacts from Rentancy on case open', async () => {
+    const job = makeJob();
+    await job.runForOrg(ORG_ID);
+    const contacts = await prisma.contact.findMany({
+      where: { organisationId: ORG_ID },
+      orderBy: { id: 'asc' },
+    });
+    expect(contacts.map((c) => c.id).sort()).toEqual([
+      'contact-guarantor-001',
+      'contact-tenant-001',
+      'contact-tenant-002',
+    ]);
+
+    const tenant = contacts.find((c) => c.id === 'contact-tenant-001')!;
+    expect(tenant.firstName).toBe('Jane');
+    expect(tenant.primaryEmail).toBe('jane.tenant@example.com');
+
+    const links = await prisma.tenancyContact.findMany({
+      where: { tenancyId: 'tenancy-abc-001' },
+      orderBy: { role: 'asc' },
+    });
+    expect(links.map((l) => `${l.role}:${l.contactId}`).sort()).toEqual([
+      'GUARANTOR:contact-guarantor-001',
+      'TENANT:contact-tenant-001',
+    ]);
   });
 
   it('writes a SyncJobRun audit row with COMPLETED status and counts', async () => {
@@ -159,11 +200,16 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
     };
     const cases = new CasesService(prisma as unknown as PrismaService);
     const charges = new ChargesService(prisma as unknown as PrismaService);
+    const tenancyRefresh = new TenancyRefreshService(
+      prisma as unknown as PrismaService,
+      new FixtureRentancyClient(RENTANCY_FIXTURE_DIR),
+    );
     const job = new LwcaInvoicePollJob(
       prisma as unknown as PrismaService,
       failing,
       cases,
       charges,
+      tenancyRefresh,
     );
     await expect(job.runForOrg(ORG_ID)).rejects.toThrow('boom');
 

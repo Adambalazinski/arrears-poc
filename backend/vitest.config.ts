@@ -7,6 +7,12 @@ export default defineConfig({
     include: ['src/**/*.spec.ts', 'src/**/__tests__/**/*.spec.ts'],
     globals: false,
     reporters: ['default'],
+    // Several specs hit the same local Postgres rows (Tenancy.id is a global
+    // primary key, so two files inserting the same id race). Run files
+    // serially in one worker — slightly slower but deterministic.
+    pool: 'forks',
+    poolOptions: { forks: { singleFork: true } },
+    fileParallelism: false,
   },
   resolve: {
     alias: {

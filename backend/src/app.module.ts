@@ -9,6 +9,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CasesModule } from './modules/cases/cases.module';
 import { ChargesModule } from './modules/charges/charges.module';
 import { OrganisationsModule } from './modules/organisations/organisations.module';
+import { TenanciesModule } from './modules/tenancies/tenancies.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { OrganisationsModule } from './modules/organisations/organisations.modul
     OrganisationsModule,
     CasesModule,
     ChargesModule,
+    TenanciesModule,
   ],
   controllers: [HealthController],
 })

@@ -8,6 +8,7 @@ import {
 } from '../../../integrations/lwca/lwca-invoice.client';
 import type { LwcaTenancyHint } from '../../../integrations/lwca/lwca-invoice.mapper';
 import { ChargesService } from '../../charges/charges.service';
+import { TenancyRefreshService } from '../../tenancies/tenancy-refresh.service';
 import { CasesService } from '../cases.service';
 
 export interface PollRunResult {
@@ -47,6 +48,7 @@ export class LwcaInvoicePollJob {
     @Inject(LWCA_INVOICE_CLIENT) private readonly lwca: LwcaInvoiceClient,
     private readonly cases: CasesService,
     private readonly charges: ChargesService,
+    private readonly tenancyRefresh: TenancyRefreshService,
   ) {}
 
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -85,14 +87,32 @@ export class LwcaInvoicePollJob {
       const invoices = await this.lwca.listArrears(organisationId);
       processed = invoices.length;
       const touchedCases = new Set<string>();
+      const tenanciesNeedingRefresh = new Set<string>();
       for (const inv of invoices) {
         await this.upsertTenancyStub(organisationId, inv.tenancy);
         const open = await this.cases.openOrAttach(organisationId, inv.tenancy.tenancyId);
-        if (open.opened) casesOpened++;
+        if (open.opened) {
+          casesOpened++;
+          tenanciesNeedingRefresh.add(inv.tenancy.tenancyId);
+        }
         const upsert = await this.charges.upsertFromLwca(open.caseId, inv.charge);
         if (upsert.created) created++;
         else updated++;
         touchedCases.add(open.caseId);
+      }
+      // Phase 4.4: a newly opened case triggers a one-shot Rentancy refresh
+      // to populate tenant + guarantor data. Failures are logged but
+      // don't fail the polling run — the hourly refresh job will retry.
+      for (const tenancyId of tenanciesNeedingRefresh) {
+        try {
+          await this.tenancyRefresh.refreshFromRentancy(organisationId, tenancyId);
+        } catch (err) {
+          this.logger.warn(
+            `lwca-invoice-poll: rentancy refresh for ${tenancyId} failed — ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        }
       }
       for (const caseId of touchedCases) {
         const r = await this.cases.recomputeAndMaybeClose(caseId);
