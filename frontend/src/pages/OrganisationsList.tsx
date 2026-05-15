@@ -57,6 +57,12 @@ export function OrganisationsListPage(): JSX.Element {
                       cases →
                     </Link>
                     <Link
+                      to={`/organisations/${encodeURIComponent(o.id)}/review-queue`}
+                      className="underline"
+                    >
+                      review queue →
+                    </Link>
+                    <Link
                       to={`/organisations/${encodeURIComponent(o.id)}/config`}
                       className="underline"
                     >

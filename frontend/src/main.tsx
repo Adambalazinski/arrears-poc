@@ -8,6 +8,7 @@ import { CasesListPage } from './pages/CasesList';
 import { LoginPage } from './pages/Login';
 import { OrganisationsListPage } from './pages/OrganisationsList';
 import { OrganisationConfigPage } from './pages/OrganisationConfig';
+import { ReviewQueuePage } from './pages/ReviewQueue';
 import './index.css';
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ function AuthedRoutes(): JSX.Element {
         element={<OrganisationConfigPage />}
       />
       <Route path="/organisations/:orgId/cases" element={<CasesListPage />} />
+      <Route path="/organisations/:orgId/review-queue" element={<ReviewQueuePage />} />
       <Route path="/cases/:id" element={<CaseDetailPage />} />
       <Route path="/auth/callback" element={<OrganisationsListPage />} />
     </Routes>

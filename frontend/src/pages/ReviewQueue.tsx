@@ -1,0 +1,367 @@
+import { useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/lib/auth';
+import { getOrganisation } from '@/lib/api-orgs';
+import { formatPence } from '@/lib/api-cases';
+import {
+  approveReviewQueueItem,
+  getReviewQueueItem,
+  listReviewQueue,
+  rejectReviewQueueItem,
+  type BalanceChangedDetail,
+  type ReviewQueueListItem,
+} from '@/lib/api-review-queue';
+
+const PRIORITY_ORDER: ReviewQueueListItem['priority'][] = ['URGENT', 'HIGH', 'NORMAL', 'LOW'];
+
+export function ReviewQueuePage(): JSX.Element {
+  const { orgId } = useParams<{ orgId: string }>();
+  if (!orgId) return <p className="p-6">Missing organisation id.</p>;
+
+  const auth = useAuth();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const org = useQuery({ queryKey: ['org', orgId], queryFn: () => getOrganisation(orgId) });
+  const items = useQuery({
+    queryKey: ['review-queue', orgId],
+    queryFn: () => listReviewQueue(orgId),
+  });
+
+  const sorted = useMemo(() => {
+    if (!items.data) return [];
+    return [...items.data].sort((a, b) => {
+      const ap = PRIORITY_ORDER.indexOf(a.priority);
+      const bp = PRIORITY_ORDER.indexOf(b.priority);
+      if (ap !== bp) return ap - bp;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  }, [items.data]);
+
+  return (
+    <main className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border px-6 py-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Link to="/" className="text-sm underline text-muted-foreground">
+            ← organisations
+          </Link>
+          <div>
+            <h1 className="text-xl font-semibold">Review queue — {org.data?.name ?? orgId}</h1>
+            <code className="text-xs text-muted-foreground">{orgId}</code>
+          </div>
+        </div>
+        <div className="text-sm text-muted-foreground flex items-center gap-3">
+          <span>
+            <code className="font-mono">{auth.user?.email}</code>
+          </span>
+          <button className="underline" onClick={auth.logout}>
+            sign out
+          </button>
+        </div>
+      </header>
+
+      <section className="max-w-6xl mx-auto px-6 py-5 grid grid-cols-[320px_1fr] gap-6">
+        <div className="border border-border rounded overflow-hidden">
+          <header className="bg-muted/40 px-3 py-2 text-sm font-medium text-muted-foreground">
+            Pending ({sorted.length})
+          </header>
+          {items.isLoading && (
+            <p className="text-sm text-muted-foreground p-3">Loading…</p>
+          )}
+          {items.error && (
+            <p className="text-sm text-destructive p-3">
+              Failed: {String(items.error)}
+            </p>
+          )}
+          {sorted.length === 0 && !items.isLoading && (
+            <p className="text-sm text-muted-foreground p-3">
+              No pending items. Run the sync + advance the clock to produce drafts.
+            </p>
+          )}
+          <ul className="divide-y divide-border">
+            {sorted.map((it) => (
+              <li
+                key={it.id}
+                className={`px-3 py-2 cursor-pointer hover:bg-muted/30 ${
+                  selectedId === it.id ? 'bg-muted/40' : ''
+                }`}
+                onClick={() => setSelectedId(it.id)}
+              >
+                <div className="flex items-center justify-between text-xs gap-2">
+                  <PriorityBadge priority={it.priority} />
+                  <code className="text-muted-foreground">
+                    {it.communication?.consolidatedStage ?? it.kind}
+                  </code>
+                </div>
+                <div className="text-sm mt-1 truncate">
+                  {it.communication?.subject ?? '(no subject)'}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1 truncate">
+                  → {it.communication?.toAddress ?? '—'}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          {!selectedId && (
+            <p className="text-sm text-muted-foreground">
+              Select an item on the left to review.
+            </p>
+          )}
+          {selectedId && <ReviewDetail itemId={selectedId} onResolved={() => setSelectedId(null)} />}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function PriorityBadge({ priority }: { priority: ReviewQueueListItem['priority'] }): JSX.Element {
+  const colour =
+    priority === 'URGENT'
+      ? 'bg-destructive text-destructive-foreground'
+      : priority === 'HIGH'
+        ? 'bg-orange-500 text-white'
+        : priority === 'NORMAL'
+          ? 'bg-secondary text-secondary-foreground'
+          : 'bg-muted text-muted-foreground';
+  return (
+    <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${colour}`}>
+      {priority}
+    </span>
+  );
+}
+
+function ReviewDetail({
+  itemId,
+  onResolved,
+}: {
+  itemId: string;
+  onResolved: () => void;
+}): JSX.Element {
+  const qc = useQueryClient();
+  const detail = useQuery({
+    queryKey: ['review-queue-item', itemId],
+    queryFn: () => getReviewQueueItem(itemId),
+  });
+  const [edit, setEdit] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [balanceChanged, setBalanceChanged] = useState<BalanceChangedDetail | null>(null);
+
+  const approve = useMutation({
+    mutationFn: () => approveReviewQueueItem(itemId, edit ?? undefined),
+    onSuccess: async (r) => {
+      if (!r.ok) {
+        setBalanceChanged(r.balanceChanged);
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ['review-queue'] });
+      onResolved();
+    },
+  });
+
+  const reject = useMutation({
+    mutationFn: () => rejectReviewQueueItem(itemId, rejectReason.trim()),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['review-queue'] });
+      onResolved();
+    },
+  });
+
+  if (detail.isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (detail.error || !detail.data) {
+    return (
+      <p className="text-sm text-destructive">
+        Failed: {detail.error instanceof Error ? detail.error.message : 'unknown'}
+      </p>
+    );
+  }
+  const it = detail.data;
+  const comm = it.communication;
+
+  return (
+    <div className="space-y-4">
+      <div className="border border-border rounded p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-semibold">{comm?.subject ?? '(no subject)'}</h2>
+          <PriorityBadge priority={it.priority} />
+        </div>
+        <dl className="grid grid-cols-[120px_1fr] gap-y-1 text-xs">
+          <dt className="text-muted-foreground">Case</dt>
+          <dd>
+            <Link
+              to={`/cases/${encodeURIComponent(it.caseId)}`}
+              className="font-mono underline"
+            >
+              {it.caseId}
+            </Link>
+          </dd>
+          <dt className="text-muted-foreground">Recipient</dt>
+          <dd>{comm?.toAddress ?? '—'}</dd>
+          <dt className="text-muted-foreground">Stage</dt>
+          <dd>{comm?.consolidatedStage ?? '—'}</dd>
+          <dt className="text-muted-foreground">Drafted</dt>
+          <dd>{comm ? new Date(comm.createdAt).toLocaleString('en-GB') : '—'}</dd>
+        </dl>
+      </div>
+
+      <div className="border border-border rounded p-4">
+        <h3 className="text-sm font-medium text-muted-foreground mb-2">Draft body</h3>
+        {edit !== null ? (
+          <textarea
+            rows={20}
+            className="w-full border border-input rounded px-2 py-1.5 bg-background font-mono text-xs"
+            value={edit}
+            onChange={(e) => setEdit(e.target.value)}
+          />
+        ) : (
+          <pre className="whitespace-pre-wrap font-mono text-xs">
+            {comm?.bodyMarkdown ?? '(no body)'}
+          </pre>
+        )}
+      </div>
+
+      {comm?.charges && comm.charges.length > 0 && (
+        <div className="border border-border rounded p-4">
+          <h3 className="text-sm font-medium text-muted-foreground mb-2">Linked charges</h3>
+          <table className="w-full text-xs">
+            <thead className="text-left text-muted-foreground">
+              <tr>
+                <th className="py-1">Invoice</th>
+                <th className="py-1">Due</th>
+                <th className="py-1">Remain</th>
+                <th className="py-1">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comm.charges.map((ch) => (
+                <tr key={ch.id} className="border-t border-border">
+                  <td className="py-1 font-mono">{ch.lwcaInvoiceId}</td>
+                  <td className="py-1">{new Date(ch.dueDate).toLocaleDateString('en-GB')}</td>
+                  <td className="py-1">{formatPence(ch.lastKnownRemainAmountPence)}</td>
+                  <td className="py-1">{ch.lastKnownStatus}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {balanceChanged && (
+        <BalanceChangedNotice
+          detail={balanceChanged}
+          onDismiss={() => setBalanceChanged(null)}
+        />
+      )}
+
+      <div className="flex items-center gap-3">
+        {edit === null ? (
+          <>
+            <button
+              type="button"
+              className="rounded bg-primary text-primary-foreground px-3 py-1.5 disabled:opacity-50"
+              disabled={approve.isPending}
+              onClick={() => approve.mutate()}
+            >
+              {approve.isPending ? 'Approving…' : 'Approve'}
+            </button>
+            <button
+              type="button"
+              className="rounded border border-input px-3 py-1.5 text-sm"
+              onClick={() => setEdit(comm?.bodyMarkdown ?? '')}
+            >
+              Edit
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="rounded bg-primary text-primary-foreground px-3 py-1.5 disabled:opacity-50"
+              disabled={approve.isPending}
+              onClick={() => approve.mutate()}
+            >
+              {approve.isPending ? 'Saving…' : 'Save & approve'}
+            </button>
+            <button
+              type="button"
+              className="rounded border border-input px-3 py-1.5 text-sm"
+              onClick={() => setEdit(null)}
+            >
+              Cancel edit
+            </button>
+          </>
+        )}
+        <span className="flex-1" />
+        <input
+          type="text"
+          placeholder="reject reason"
+          className="border border-input rounded px-2 py-1.5 text-sm bg-background"
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+        />
+        <button
+          type="button"
+          className="rounded bg-destructive text-destructive-foreground px-3 py-1.5 text-sm disabled:opacity-50"
+          disabled={!rejectReason.trim() || reject.isPending}
+          onClick={() => reject.mutate()}
+        >
+          {reject.isPending ? 'Rejecting…' : 'Reject'}
+        </button>
+      </div>
+
+      {approve.error && (
+        <p className="text-destructive text-sm">
+          {approve.error instanceof Error ? approve.error.message : 'approve failed'}
+        </p>
+      )}
+      {reject.error && (
+        <p className="text-destructive text-sm">
+          {reject.error instanceof Error ? reject.error.message : 'reject failed'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function BalanceChangedNotice({
+  detail,
+  onDismiss,
+}: {
+  detail: BalanceChangedDetail;
+  onDismiss: () => void;
+}): JSX.Element {
+  return (
+    <div className="border border-destructive/40 bg-destructive/10 text-destructive rounded p-3 text-sm space-y-2">
+      <div className="flex items-center justify-between">
+        <strong>Balance changed since draft</strong>
+        <button
+          type="button"
+          className="text-xs underline"
+          onClick={onDismiss}
+        >
+          dismiss
+        </button>
+      </div>
+      <p>
+        Draft balance: {formatPence(detail.draftBalancePence)} → current{' '}
+        {formatPence(detail.currentBalancePence)}.
+      </p>
+      <ul className="list-disc pl-5 text-xs">
+        {detail.perCharge
+          .filter((c) => c.changed)
+          .map((c) => (
+            <li key={c.chargeId}>
+              <code>{c.chargeId}</code>: {formatPence(c.draftRemainPence)} (
+              {c.draftStatus}) → {formatPence(c.currentRemainPence)} ({c.currentStatus})
+            </li>
+          ))}
+      </ul>
+      <p className="text-xs">
+        Reject this draft and run a fresh sync / advance-clock to regenerate against current
+        state. (Auto-regenerate button arrives with Phase 6.)
+      </p>
+    </div>
+  );
+}

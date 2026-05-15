@@ -191,6 +191,8 @@ export class DigestService {
     const subject = SUBJECT_BY_STAGE[consolidatedStage];
     const priority = pickPriority(firing, c.s8Eligible);
 
+    const snapshot = buildDraftSnapshot(overdueCharges);
+
     const result = await this.prisma.$transaction(async (tx) => {
       const comm = await tx.communication.create({
         data: {
@@ -205,6 +207,7 @@ export class DigestService {
           subject,
           bodyMarkdown: body,
           draftedByAi: false,
+          draftSnapshotJson: snapshot as object,
           charges: { connect: overdueCharges.map((ch) => ({ id: ch.id })) },
         },
       });
@@ -264,6 +267,24 @@ function mostSevereStage(stages: ChaseStage[]): ChaseStage {
     (acc, s) => (STAGE_SEVERITY[s] > STAGE_SEVERITY[acc] ? s : acc),
     ChaseStage.NOT_DUE,
   );
+}
+
+export interface DraftSnapshot {
+  balancePence: string;
+  charges: Array<{ chargeId: string; remainAmountPence: string; status: string }>;
+}
+
+export function buildDraftSnapshot(charges: Charge[]): DraftSnapshot {
+  return {
+    balancePence: charges
+      .reduce((acc, ch) => acc + ch.lastKnownRemainAmountPence, 0n)
+      .toString(),
+    charges: charges.map((ch) => ({
+      chargeId: ch.id,
+      remainAmountPence: ch.lastKnownRemainAmountPence.toString(),
+      status: ch.lastKnownStatus,
+    })),
+  };
 }
 
 function pickPriority(

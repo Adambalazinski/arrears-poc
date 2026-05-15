@@ -400,6 +400,12 @@ model Communication {
   rejectedAt       DateTime?
   rejectionReason  String?
 
+  // Snapshot of per-charge remain + status taken at draft time, used by R9
+  // (balance-changed-since-draft) to spot payments that landed between draft
+  // and approve. Shape: { balancePence: "<str>", charges: [{ chargeId,
+  // remainAmountPence: "<str>", status }] }.
+  draftSnapshotJson    Json?
+
   // Send result
   sentAt               DateTime?
   outlookSentMessageId String?
