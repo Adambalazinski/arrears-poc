@@ -1,5 +1,6 @@
 import { PrismaClient, type Case } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { Clock } from '../../../../common/clock/clock.service';
 import type { PrismaService } from '../../../../integrations/prisma/prisma.service';
 import { DEFAULT_ORG_CONFIG } from '../../../organisations/defaults';
 import { DigestService } from '../digest.service';
@@ -131,7 +132,8 @@ async function scheduleEntry(
 }
 
 function makeService(): DigestService {
-  return new DigestService(prisma as unknown as PrismaService);
+  const clock = new Clock();
+  return new DigestService(prisma as unknown as PrismaService, clock);
 }
 
 const NOW = new Date('2026-05-15T09:00:00Z');

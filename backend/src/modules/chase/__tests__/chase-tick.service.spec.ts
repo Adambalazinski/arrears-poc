@@ -1,5 +1,6 @@
 import { PrismaClient, type Charge } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Clock } from '../../../common/clock/clock.service';
 import { BankHolidaysLoader } from '../../../common/working-day/bank-holidays.loader';
 import { WorkingDayService } from '../../../common/working-day/working-day.service';
 import type { GovUkBankHolidays } from '../../../common/working-day/types';
@@ -35,7 +36,8 @@ function makeWorkingDay(): WorkingDayService {
 }
 
 function makeService(): ChaseTickService {
-  return new ChaseTickService(prisma as unknown as PrismaService, makeWorkingDay());
+  const clock = new Clock();
+  return new ChaseTickService(prisma as unknown as PrismaService, makeWorkingDay(), clock);
 }
 
 async function wipe(): Promise<void> {

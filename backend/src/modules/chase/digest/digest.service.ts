@@ -18,6 +18,7 @@ import {
   type Contact,
   type Communication,
 } from '@prisma/client';
+import { Clock } from '../../../common/clock/clock.service';
 import { PrismaService } from '../../../integrations/prisma/prisma.service';
 import { STAGE_SEVERITY } from '../chase-thresholds';
 import { renderTemplate, type TemplateContext } from './template-renderer';
@@ -94,15 +95,19 @@ const SUBJECT_BY_STAGE: Record<ChaseStage, string> = {
 export class DigestService {
   private readonly logger = new Logger(DigestService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly clock: Clock,
+  ) {}
 
-  async runDigest(now: Date = new Date()): Promise<DigestRunResult> {
-    const cases = await this.findCasesWithFiringEntries(now);
+  async runDigest(now?: Date): Promise<DigestRunResult> {
+    const digestNow = now ?? this.clock.now();
+    const cases = await this.findCasesWithFiringEntries(digestNow);
     let digestsCreated = 0;
     let entriesFired = 0;
     for (const c of cases) {
       try {
-        const r = await this.processCase(c, now);
+        const r = await this.processCase(c, digestNow);
         if (r.digestCreated) digestsCreated++;
         entriesFired += r.entriesFired;
       } catch (err) {

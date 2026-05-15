@@ -7,6 +7,7 @@ import {
   type OrganisationConfig,
   type Prisma,
 } from '@prisma/client';
+import { Clock } from '../../common/clock/clock.service';
 import { WorkingDayService } from '../../common/working-day/working-day.service';
 import { PrismaService } from '../../integrations/prisma/prisma.service';
 import {
@@ -58,9 +59,11 @@ export class ChaseTickService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workingDay: WorkingDayService,
+    private readonly clock: Clock,
   ) {}
 
-  async runTick(now: Date = new Date()): Promise<ChaseTickResult> {
+  async runTick(now?: Date): Promise<ChaseTickResult> {
+    const tickNow = now ?? this.clock.now();
     const charges = await this.prisma.charge.findMany({
       where: {
         lastKnownStatus: { in: Array.from(ARREARS_CHARGE_STATUSES) },
@@ -82,7 +85,7 @@ export class ChaseTickService {
     let entriesCreated = 0;
     let entriesSkipped = 0;
     let stagesAdvanced = 0;
-    const dueAt = todayAt9LondonAsUtc(now);
+    const dueAt = todayAt9LondonAsUtc(tickNow);
 
     for (const c of charges) {
       const config = c.case.organisation.config;
@@ -92,7 +95,7 @@ export class ChaseTickService {
         );
         continue;
       }
-      const wd = this.workingDay.workingDaysOverdue(c.dueDate, now);
+      const wd = this.workingDay.workingDaysOverdue(c.dueDate, tickNow);
       const thresholds = thresholdsFromConfig(config as OrganisationConfig);
       const crossed = stagesCrossed(wd, thresholds);
       const existingByStage = new Map(c.chaseScheduleEntries.map((e) => [e.stage, e]));
@@ -127,7 +130,7 @@ export class ChaseTickService {
           ...(advance && computed !== c.currentStage
             ? {
                 currentStage: computed,
-                currentStageEnteredAt: now,
+                currentStageEnteredAt: tickNow,
               }
             : {}),
         },
@@ -145,7 +148,7 @@ export class ChaseTickService {
               toStage: computed,
               workingDaysOverdue: wd,
             },
-            occurredAt: now,
+            occurredAt: tickNow,
           },
         });
       }
