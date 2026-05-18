@@ -1,11 +1,10 @@
 import { Module, type Provider } from '@nestjs/common';
 import { PreFilterService } from './pre-filter.service';
-import { PassThroughRedactor, REDACTOR } from './redactor';
+import { DefaultRedactor, REDACTOR } from './redactor';
 
 const redactorProvider: Provider = {
   provide: REDACTOR,
-  // Phase 7.4: pass-through placeholder. Phase 7.5 swaps for the real impl.
-  useClass: PassThroughRedactor,
+  useClass: DefaultRedactor,
 };
 
 /**
