@@ -22,6 +22,7 @@
     "schema": "src/prisma/schema.prisma"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.668.0",
     "@azure/identity": "^4.5.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",

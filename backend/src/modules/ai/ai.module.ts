@@ -1,13 +1,21 @@
-import { Module } from '@nestjs/common';
+import { Module, type Provider } from '@nestjs/common';
 import { PreFilterService } from './pre-filter.service';
+import { PassThroughRedactor, REDACTOR } from './redactor';
+
+const redactorProvider: Provider = {
+  provide: REDACTOR,
+  // Phase 7.4: pass-through placeholder. Phase 7.5 swaps for the real impl.
+  useClass: PassThroughRedactor,
+};
 
 /**
- * AI-adjacent services. Phase 7.2 ships only the deterministic
- * pre-filter (no Anthropic dependency). Phase 7.4 adds AnthropicClient
- * + Redactor here.
+ * AI-adjacent services. Currently hosts the deterministic pre-filter
+ * (7.2) and the Redactor seam (7.4); Phase 7.5 lands the real Redactor.
+ * AnthropicClient lives in integrations/anthropic/ (factory-provided
+ * there to keep the SDK-loading branch tidy).
  */
 @Module({
-  providers: [PreFilterService],
-  exports: [PreFilterService],
+  providers: [PreFilterService, redactorProvider],
+  exports: [PreFilterService, redactorProvider],
 })
 export class AiModule {}
