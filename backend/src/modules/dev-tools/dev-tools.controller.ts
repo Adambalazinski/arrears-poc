@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  Param,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -16,9 +17,14 @@ import { AuthGuard } from '../auth/auth.guard';
 import { ChaseTickService } from '../chase/chase-tick.service';
 import { DigestService } from '../chase/digest/digest.service';
 import { todayAt9LondonAsUtc } from '../chase/london-clock';
+import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
 
 const AdvanceClockSchema = z.object({
   workingDays: z.number().int().min(1).max(60),
+});
+
+const SeedFixtureEmailsSchema = z.object({
+  fixture: z.string().regex(/\.eml$/).optional(),
 });
 
 @Controller('dev')
@@ -29,7 +35,34 @@ export class DevToolsController {
     private readonly workingDay: WorkingDayService,
     private readonly chaseTick: ChaseTickService,
     private readonly digest: DigestService,
+    private readonly seedFixtures: SeedFixtureEmailsService,
   ) {}
+
+  @Get('fixture-emails')
+  listFixtureEmails() {
+    this.assertEnabled();
+    return { fixtures: this.seedFixtures.listFixtures() };
+  }
+
+  /**
+   * Drop a fixture inbound email onto the case and run the inbound
+   * pipeline inline. `fixture` body field selects one .eml from
+   * fixtures/outlook/; omit to seed all of them.
+   */
+  @Post('seed-fixture-emails/:caseId')
+  @HttpCode(200)
+  async seedFixtureEmails(
+    @Param('caseId') caseId: string,
+    @Body(new ZodBody(SeedFixtureEmailsSchema)) body: { fixture?: string },
+  ) {
+    this.assertEnabled();
+    if (body.fixture) {
+      const result = await this.seedFixtures.seedOne(caseId, body.fixture);
+      return { caseId, results: [result] };
+    }
+    const results = await this.seedFixtures.seedAll(caseId);
+    return { caseId, results };
+  }
 
   @Get('clock')
   status() {
