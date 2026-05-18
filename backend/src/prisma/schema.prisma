@@ -604,3 +604,52 @@ enum SyncJobStatus {
   COMPLETED
   FAILED
 }
+
+// ---------- Outlook inbound polling ----------
+
+// Singleton row tracking the high-watermark of inbound polling. The poll
+// fetches messages with receivedDateTime >= (lastReceivedAt - 2 min overlap)
+// per docs/integrations.md — the 2-min overlap covers Graph's eventual
+// consistency, idempotency on Communication.outlookMessageId makes it free.
+//
+// Enforced as a singleton via a CHECK constraint on `id = 'singleton'` in the
+// migration. We don't make it per-org because there's a single shared mailbox.
+model OutlookPollCursor {
+  id              String   @id // always 'singleton'
+  lastReceivedAt  DateTime?
+  lastPolledAt    DateTime?
+  updatedAt       DateTime @updatedAt
+
+  @@map("outlook_poll_cursor")
+}
+
+// Inbound messages whose sender we couldn't match to a Contact (or matched
+// ambiguously across organisations). These sit on a "needs triage" admin
+// page (Phase 8) and never enter the AI pipeline.
+//
+// We can't reuse Communication for orphans because Communication.caseId is
+// required — orphans have no case by definition.
+model OrphanInbound {
+  id               String              @id @default(uuid())
+  outlookMessageId String              @unique
+  reasonKind       OrphanInboundReason
+
+  fromAddress      String
+  subject          String?
+  receivedAt       DateTime
+  rawBodyText      String?
+
+  // For AMBIGUOUS_SENDER: the contact ids that matched, JSON array of
+  //   { contactId, organisationId }. Null for UNMATCHED_SENDER.
+  matchedContactsJson Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([reasonKind, createdAt])
+  @@map("orphan_inbound")
+}
+
+enum OrphanInboundReason {
+  UNMATCHED_SENDER
+  AMBIGUOUS_SENDER
+}
