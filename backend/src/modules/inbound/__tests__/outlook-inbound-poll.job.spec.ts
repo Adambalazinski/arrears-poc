@@ -18,6 +18,7 @@ import type {
 } from '../../../integrations/outlook/outlook.types';
 import type { PrismaService } from '../../../integrations/prisma/prisma.service';
 import { PreFilterService } from '../../ai/pre-filter.service';
+import { PassThroughRedactor } from '../../ai/redactor';
 import { InboundCursorService } from '../inbound-cursor.service';
 import { InboundPipelineService } from '../inbound-pipeline.service';
 import { InboundSenderMatcher } from '../inbound-sender-matcher.service';
@@ -34,6 +35,18 @@ const prisma = new PrismaClient({ datasources: { db: { url: DATABASE_URL } } });
 async function wipe(): Promise<void> {
   await prisma.outlookPollCursor.deleteMany({});
   await prisma.orphanInbound.deleteMany({});
+  await prisma.classificationResult.deleteMany({
+    where: { case: { organisationId: { in: [ORG_A, ORG_B] } } },
+  });
+  await prisma.reviewQueueItem.deleteMany({
+    where: { organisationId: { in: [ORG_A, ORG_B] } },
+  });
+  await prisma.escalationFlag.deleteMany({
+    where: { case: { organisationId: { in: [ORG_A, ORG_B] } } },
+  });
+  await prisma.chaseScheduleEntry.deleteMany({
+    where: { case: { organisationId: { in: [ORG_A, ORG_B] } } },
+  });
   await prisma.caseEvent.deleteMany({
     where: { case: { organisationId: { in: [ORG_A, ORG_B] } } },
   });
@@ -142,7 +155,7 @@ function makeFakeOutlook(messages: InboundMessageFull[]): InboundMailReader & {
 function makeJob(
   outlook: InboundMailReader,
   clockNow = new Date('2026-05-15T12:00:00Z'),
-  pipelineSpy?: ReturnType<typeof vi.fn>,
+  pipelineSpy: ReturnType<typeof vi.fn> = vi.fn(async () => undefined),
 ): { job: OutlookInboundPollJob; pipeline: InboundPipelineService } {
   const clock = new Clock();
   vi.spyOn(clock, 'now').mockReturnValue(clockNow);
@@ -153,10 +166,12 @@ function makeJob(
     clock,
     new PreFilterService(),
     new NotImplementedAnthropicClient(),
+    new PassThroughRedactor(),
   );
-  if (pipelineSpy) {
-    vi.spyOn(pipeline, 'handle').mockImplementation(pipelineSpy);
-  }
+  // Poll-job tests stub the pipeline by default — the pipeline has its
+  // own spec. Tests that care about the spy's invocation pass an
+  // explicit one.
+  vi.spyOn(pipeline, 'handle').mockImplementation(pipelineSpy);
   const job = new OutlookInboundPollJob(
     prisma as unknown as PrismaService,
     clock,

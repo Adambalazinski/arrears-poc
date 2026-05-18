@@ -12,10 +12,16 @@ import {
   vi,
 } from 'vitest';
 import { Clock } from '../../../common/clock/clock.service';
-import type { AnthropicClient } from '../../../integrations/anthropic/anthropic-client';
+import {
+  AnthropicJsonParseError,
+  AnthropicSpendCapExceeded,
+  type AnthropicClassifyResult,
+  type AnthropicClient,
+} from '../../../integrations/anthropic/anthropic-client';
 import type { PrismaService } from '../../../integrations/prisma/prisma.service';
 import type { HardTriggerKind } from '../../ai/hard-triggers';
 import { PreFilterService } from '../../ai/pre-filter.service';
+import { DefaultRedactor, RedactionRequiredError, type Redactor } from '../../ai/redactor';
 import { InboundPipelineService } from '../inbound-pipeline.service';
 
 const DATABASE_URL =
@@ -117,12 +123,63 @@ function makeAnthropicSpy(): {
   };
 }
 
+function makeHappyClassifier(
+  overrides: Partial<AnthropicClassifyResult> = {},
+): {
+  client: AnthropicClient;
+  classify: ReturnType<typeof vi.fn>;
+  draftReply: ReturnType<typeof vi.fn>;
+} {
+  const result: AnthropicClassifyResult = {
+    modelUsed: 'claude-haiku-4-5',
+    sentiment: 'NEUTRAL',
+    intent: 'PAYMENT_PROMISE',
+    confidence: 0.82,
+    rationale: 'tenant offers to pay on Friday',
+    promptTokens: 540,
+    completionTokens: 35,
+    estimatedCostPence: 1,
+    ...overrides,
+  };
+  const classify = vi.fn(async () => result);
+  const draftReply = vi.fn(async () => {
+    throw new Error('draftReply must not be called in Phase 7.6 tests');
+  });
+  return {
+    client: { classify, draftReply } as unknown as AnthropicClient,
+    classify,
+    draftReply,
+  };
+}
+
+function makeFailingClassifier(err: Error): {
+  client: AnthropicClient;
+  classify: ReturnType<typeof vi.fn>;
+} {
+  const classify = vi.fn(async () => {
+    throw err;
+  });
+  return {
+    client: { classify, draftReply: vi.fn() } as unknown as AnthropicClient,
+    classify,
+  };
+}
+
 interface SeedCaseResult {
   caseId: string;
   tenancyId: string;
+  contactId: string;
 }
 
-async function seedActiveCaseWithChaseEntries(): Promise<SeedCaseResult> {
+interface SeedCaseOptions {
+  /** Sender contact: linked to the case's tenancy so the matcher can resolve them. */
+  contact?: { id?: string; firstName?: string; primaryEmail: string };
+  workingDaysOverdue?: number;
+}
+
+async function seedActiveCaseWithChaseEntries(
+  opts: SeedCaseOptions = {},
+): Promise<SeedCaseResult> {
   const tenancyId = 'tenancy-pipeline-001';
   await prisma.tenancy.create({
     data: {
@@ -153,8 +210,27 @@ async function seedActiveCaseWithChaseEntries(): Promise<SeedCaseResult> {
       grossAmountPence: 200000n,
       lastKnownRemainAmountPence: 200000n,
       lastKnownStatus: 'UNPAID',
+      workingDaysOverdue: opts.workingDaysOverdue ?? 7,
       lastSyncedAt: new Date(),
     },
+  });
+  const contactSpec = opts.contact ?? {
+    primaryEmail: 'jane.tenant@example.com',
+    firstName: 'Jane',
+  };
+  const contact = await prisma.contact.create({
+    data: {
+      id: contactSpec.id ?? 'contact-pipeline-001',
+      organisationId: ORG,
+      firstName: contactSpec.firstName ?? null,
+      primaryEmail: contactSpec.primaryEmail.toLowerCase(),
+      emailsJson: [],
+      phonesJson: [],
+      lastSyncedAt: new Date(),
+    },
+  });
+  await prisma.tenancyContact.create({
+    data: { tenancyId, contactId: contact.id, role: 'TENANT' },
   });
   // Two pending chase entries that the hard-trigger flow should halt.
   await prisma.chaseScheduleEntry.create({
@@ -183,7 +259,7 @@ async function seedActiveCaseWithChaseEntries(): Promise<SeedCaseResult> {
       firedAt: new Date('2026-05-10T09:00:01Z'),
     },
   });
-  return { caseId: c.id, tenancyId };
+  return { caseId: c.id, tenancyId, contactId: contact.id };
 }
 
 async function seedInboundCommunication(opts: {
@@ -209,12 +285,16 @@ async function seedInboundCommunication(opts: {
   return comm.id;
 }
 
-function makePipeline(anthropic: AnthropicClient): InboundPipelineService {
+function makePipeline(
+  anthropic: AnthropicClient,
+  redactor: Redactor = new DefaultRedactor(),
+): InboundPipelineService {
   return new InboundPipelineService(
     prisma as unknown as PrismaService,
     new Clock(),
     new PreFilterService(),
     anthropic,
+    redactor,
   );
 }
 
@@ -334,9 +414,9 @@ describe('InboundPipelineService — hard-trigger fixtures', () => {
   }
 });
 
-describe('InboundPipelineService — routine fixtures (no hard trigger)', () => {
+describe('InboundPipelineService — routine fixtures classify successfully', () => {
   for (const fixture of ROUTINE_FIXTURES) {
-    it(`${fixture} returns AWAITING_CLASSIFICATION with no escalation side-effects and zero Anthropic calls`, async () => {
+    it(`${fixture} calls classify, persists ClassificationResult, emits CLASSIFICATION_PRODUCED`, async () => {
       const seed = await seedActiveCaseWithChaseEntries();
       const eml = loadFixture(fixture);
       const commId = await seedInboundCommunication({
@@ -345,21 +425,39 @@ describe('InboundPipelineService — routine fixtures (no hard trigger)', () => 
         bodyText: eml.bodyText,
         fromAddress: eml.fromAddress,
       });
-      const anthropic = makeAnthropicSpy();
+      const anthropic = makeHappyClassifier();
       const pipeline = makePipeline(anthropic.client);
 
       const outcome = await pipeline.handle(commId);
-      expect(outcome.status).toBe('AWAITING_CLASSIFICATION');
+      expect(outcome.status).toBe('CLASSIFIED');
 
-      // None of the escalation side-effects applied.
-      expect(await prisma.classificationResult.count()).toBe(0);
+      expect(anthropic.classify).toHaveBeenCalledOnce();
+      expect(anthropic.draftReply).not.toHaveBeenCalled();
+
+      const cr = await prisma.classificationResult.findUniqueOrThrow({
+        where: { communicationId: commId },
+      });
+      expect(cr.preFilterMatched).toBe(false);
+      expect(cr.modelUsed).toBe('claude-haiku-4-5');
+      expect(cr.sentiment).toBe('NEUTRAL');
+      expect(cr.intent).toBe('PAYMENT_PROMISE');
+      expect(cr.confidence?.toNumber()).toBeCloseTo(0.82, 2);
+      expect(cr.rationale).toBe('tenant offers to pay on Friday');
+      expect(cr.promptTokens).toBe(540);
+      expect(cr.completionTokens).toBe(35);
+      expect(cr.estimatedCostPence).toBe(1);
+
+      const event = await prisma.caseEvent.findFirstOrThrow({
+        where: { caseId: seed.caseId, kind: 'CLASSIFICATION_PRODUCED' },
+      });
+      const payload = event.payloadJson as Record<string, unknown>;
+      expect(payload.communicationId).toBe(commId);
+      expect(payload.sentiment).toBe('NEUTRAL');
+      expect(payload.intent).toBe('PAYMENT_PROMISE');
+
+      // No escalation side-effects on a successful classify.
       expect(await prisma.escalationFlag.count()).toBe(0);
       expect(await prisma.reviewQueueItem.count()).toBe(0);
-      expect(
-        await prisma.caseEvent.count({
-          where: { caseId: seed.caseId, kind: 'HARD_TRIGGER_MATCHED' },
-        }),
-      ).toBe(0);
       const caseRow = await prisma.case.findUniqueOrThrow({ where: { id: seed.caseId } });
       expect(caseRow.awaitingHandlerAction).toBe(false);
       const pendingEntries = await prisma.chaseScheduleEntry.findMany({
@@ -367,17 +465,232 @@ describe('InboundPipelineService — routine fixtures (no hard trigger)', () => 
       });
       expect(pendingEntries).toHaveLength(2);
 
-      // 7.3 leaves the Communication in RECEIVED — 7.6 will move it on.
+      // Communication stays RECEIVED — Phase 7.7 will route + flip.
       const comm = await prisma.communication.findUniqueOrThrow({
         where: { id: commId },
       });
       expect(comm.status).toBe('RECEIVED');
-
-      // Anthropic still untouched — Phase 7.6 wires the call site.
-      expect(anthropic.classify).not.toHaveBeenCalled();
-      expect(anthropic.draftReply).not.toHaveBeenCalled();
     });
   }
+
+  it('shapes the classify input from Case + Contact + CaseEvent timeline', async () => {
+    const seed = await seedActiveCaseWithChaseEntries({
+      contact: {
+        primaryEmail: 'jane.tenant@example.com',
+        firstName: 'Jane',
+      },
+      workingDaysOverdue: 11,
+    });
+    // CHARGE_PARTIALLY_PAID in last 30 days → recentPaymentInLast30Days=true
+    await prisma.caseEvent.create({
+      data: {
+        caseId: seed.caseId,
+        kind: 'CHARGE_PARTIALLY_PAID',
+        payloadJson: {},
+        occurredAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      },
+    });
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: 'Re: rent reminder',
+      bodyText: 'I will pay the outstanding amount on Friday once my salary clears.',
+      fromAddress: 'Jane.Tenant@Example.com',
+    });
+    const anthropic = makeHappyClassifier();
+    const pipeline = makePipeline(anthropic.client);
+
+    await pipeline.handle(commId);
+
+    const arg = anthropic.classify.mock.calls[0]![0];
+    expect(arg.organisationId).toBe(ORG);
+    expect(arg.caseId).toBe(seed.caseId);
+    expect(arg.senderFirstName).toBe('Jane');
+    expect(arg.caseContext.balancePounds).toBe(2000); // 200000p / 100
+    expect(arg.caseContext.chargeCount).toBe(1);
+    expect(arg.caseContext.maxWorkingDaysOverdue).toBe(11);
+    expect(arg.caseContext.recentPaymentInLast30Days).toBe(true);
+  });
+
+  it('falls back to "the tenant" when the sender has no Contact match', async () => {
+    const seed = await seedActiveCaseWithChaseEntries();
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: 'Question',
+      bodyText: 'Hi there, quick question about my charges thanks.',
+      fromAddress: 'unknown@example.com',
+    });
+    const anthropic = makeHappyClassifier();
+    const pipeline = makePipeline(anthropic.client);
+
+    await pipeline.handle(commId);
+
+    const arg = anthropic.classify.mock.calls[0]![0];
+    expect(arg.senderFirstName).toBe('the tenant');
+  });
+
+  it('redacts PII out of the body before sending to classify', async () => {
+    const seed = await seedActiveCaseWithChaseEntries();
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: 'Contact details',
+      bodyText:
+        'My new number is 07777 123456 and email is alt@example.com. Postcode SW1A 1AA.',
+      fromAddress: 'jane.tenant@example.com',
+    });
+    const anthropic = makeHappyClassifier();
+    const pipeline = makePipeline(anthropic.client);
+
+    await pipeline.handle(commId);
+
+    const arg = anthropic.classify.mock.calls[0]![0];
+    expect(arg.redactedBody).toContain('[phone]');
+    expect(arg.redactedBody).toContain('[email]');
+    expect(arg.redactedBody).toContain('[postcode]');
+    expect(arg.redactedBody).not.toContain('07777');
+    expect(arg.redactedBody).not.toContain('alt@example.com');
+    expect(arg.redactedBody).not.toContain('SW1A');
+  });
+});
+
+describe('InboundPipelineService — classify failure modes', () => {
+  async function assertLowConfidenceSideEffects(
+    seed: SeedCaseResult,
+    commId: string,
+  ): Promise<void> {
+    // No success row persisted.
+    expect(await prisma.classificationResult.count()).toBe(0);
+    // INBOUND_LOW_CONFIDENCE review item at HIGH priority.
+    const rqi = await prisma.reviewQueueItem.findFirstOrThrow({
+      where: { caseId: seed.caseId },
+    });
+    expect(rqi.kind).toBe('INBOUND_LOW_CONFIDENCE');
+    expect(rqi.priority).toBe('HIGH');
+    expect(rqi.communicationId).toBe(commId);
+    // AI_CONFIDENCE_FAILURE flag.
+    const flag = await prisma.escalationFlag.findFirstOrThrow({
+      where: { caseId: seed.caseId, kind: 'AI_CONFIDENCE_FAILURE' },
+    });
+    expect(flag.resolvedAt).toBeNull();
+    // ESCALATION_FLAG_RAISED event.
+    expect(
+      await prisma.caseEvent.count({
+        where: { caseId: seed.caseId, kind: 'ESCALATION_FLAG_RAISED' },
+      }),
+    ).toBe(1);
+    // Communication → PROCESSED.
+    const comm = await prisma.communication.findUniqueOrThrow({
+      where: { id: commId },
+    });
+    expect(comm.status).toBe('PROCESSED');
+    // Chase entries NOT halted — only the hard-trigger flow halts.
+    const pending = await prisma.chaseScheduleEntry.findMany({
+      where: { caseId: seed.caseId, firedAt: null },
+    });
+    expect(pending).toHaveLength(2);
+  }
+
+  it('AnthropicSpendCapExceeded routes to low-confidence queue', async () => {
+    const seed = await seedActiveCaseWithChaseEntries();
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: 'Hi',
+      bodyText: 'Hi there, will pay later.',
+      fromAddress: 'jane.tenant@example.com',
+    });
+    const anthropic = makeFailingClassifier(
+      new AnthropicSpendCapExceeded('over cap', 600, 500),
+    );
+    const pipeline = makePipeline(anthropic.client);
+
+    const outcome = await pipeline.handle(commId);
+    expect(outcome.status).toBe('CLASSIFY_FAILED');
+    if (outcome.status === 'CLASSIFY_FAILED') {
+      expect(outcome.reason).toBe('SPEND_CAP_EXCEEDED');
+    }
+    expect(anthropic.classify).toHaveBeenCalledOnce();
+    await assertLowConfidenceSideEffects(seed, commId);
+  });
+
+  it('AnthropicJsonParseError routes to low-confidence queue', async () => {
+    const seed = await seedActiveCaseWithChaseEntries();
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: 'Hi',
+      bodyText: 'Some text.',
+      fromAddress: 'jane.tenant@example.com',
+    });
+    const anthropic = makeFailingClassifier(
+      new AnthropicJsonParseError('not json', 'Sorry, I cannot do that.'),
+    );
+    const pipeline = makePipeline(anthropic.client);
+
+    const outcome = await pipeline.handle(commId);
+    expect(outcome.status).toBe('CLASSIFY_FAILED');
+    if (outcome.status === 'CLASSIFY_FAILED') {
+      expect(outcome.reason).toBe('JSON_PARSE_FAILED');
+    }
+    await assertLowConfidenceSideEffects(seed, commId);
+  });
+
+  it('RedactionRequiredError thrown by Redactor inside the wrapper routes to low-confidence queue', async () => {
+    const seed = await seedActiveCaseWithChaseEntries();
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: 'Hi',
+      bodyText: 'Routine text.',
+      fromAddress: 'jane.tenant@example.com',
+    });
+    const anthropic = makeFailingClassifier(
+      new RedactionRequiredError('phone slipped through'),
+    );
+    const pipeline = makePipeline(anthropic.client);
+
+    const outcome = await pipeline.handle(commId);
+    expect(outcome.status).toBe('CLASSIFY_FAILED');
+    if (outcome.status === 'CLASSIFY_FAILED') {
+      expect(outcome.reason).toBe('REDACTION_FAILED');
+    }
+    await assertLowConfidenceSideEffects(seed, commId);
+  });
+
+  it('generic SDK error routes to low-confidence queue as LLM_REQUEST_FAILED', async () => {
+    const seed = await seedActiveCaseWithChaseEntries();
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: 'Hi',
+      bodyText: 'Routine text.',
+      fromAddress: 'jane.tenant@example.com',
+    });
+    const anthropic = makeFailingClassifier(new Error('network down'));
+    const pipeline = makePipeline(anthropic.client);
+
+    const outcome = await pipeline.handle(commId);
+    expect(outcome.status).toBe('CLASSIFY_FAILED');
+    if (outcome.status === 'CLASSIFY_FAILED') {
+      expect(outcome.reason).toBe('LLM_REQUEST_FAILED');
+    }
+    await assertLowConfidenceSideEffects(seed, commId);
+  });
+
+  it('empty body skips the LLM call and routes to low-confidence queue', async () => {
+    const seed = await seedActiveCaseWithChaseEntries();
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: '(empty)',
+      bodyText: '   ',
+      fromAddress: 'jane.tenant@example.com',
+    });
+    const anthropic = makeHappyClassifier();
+    const pipeline = makePipeline(anthropic.client);
+
+    const outcome = await pipeline.handle(commId);
+    expect(outcome.status).toBe('CLASSIFY_FAILED');
+    if (outcome.status === 'CLASSIFY_FAILED') {
+      expect(outcome.reason).toBe('EMPTY_BODY');
+    }
+    expect(anthropic.classify).not.toHaveBeenCalled();
+    await assertLowConfidenceSideEffects(seed, commId);
+  });
 });
 
 describe('InboundPipelineService — edge cases', () => {
