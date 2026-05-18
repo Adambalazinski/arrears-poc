@@ -10,12 +10,14 @@ import {
   vi,
 } from 'vitest';
 import { Clock } from '../../../common/clock/clock.service';
+import { NotImplementedAnthropicClient } from '../../../integrations/anthropic/anthropic-client';
 import type {
   InboundMailReader,
   InboundMessageFull,
   InboundMessageSummary,
 } from '../../../integrations/outlook/outlook.types';
 import type { PrismaService } from '../../../integrations/prisma/prisma.service';
+import { PreFilterService } from '../../ai/pre-filter.service';
 import { InboundCursorService } from '../inbound-cursor.service';
 import { InboundPipelineService } from '../inbound-pipeline.service';
 import { InboundSenderMatcher } from '../inbound-sender-matcher.service';
@@ -146,7 +148,12 @@ function makeJob(
   vi.spyOn(clock, 'now').mockReturnValue(clockNow);
   const cursor = new InboundCursorService(prisma as unknown as PrismaService);
   const matcher = new InboundSenderMatcher(prisma as unknown as PrismaService);
-  const pipeline = new InboundPipelineService();
+  const pipeline = new InboundPipelineService(
+    prisma as unknown as PrismaService,
+    clock,
+    new PreFilterService(),
+    new NotImplementedAnthropicClient(),
+  );
   if (pipelineSpy) {
     vi.spyOn(pipeline, 'handle').mockImplementation(pipelineSpy);
   }
