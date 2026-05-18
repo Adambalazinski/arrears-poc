@@ -14,6 +14,7 @@ import { Clock } from '../../common/clock/clock.service';
 import { WorkingDayService } from '../../common/working-day/working-day.service';
 import { ZodBody } from '../../common/zod/zod-validation.pipe';
 import { AuthGuard } from '../auth/auth.guard';
+import { LwcaInvoicePollJob } from '../cases/jobs/lwca-invoice-poll.job';
 import { ChaseTickService } from '../chase/chase-tick.service';
 import { DigestService } from '../chase/digest/digest.service';
 import { todayAt9LondonAsUtc } from '../chase/london-clock';
@@ -36,7 +37,20 @@ export class DevToolsController {
     private readonly chaseTick: ChaseTickService,
     private readonly digest: DigestService,
     private readonly seedFixtures: SeedFixtureEmailsService,
+    private readonly lwcaPoll: LwcaInvoicePollJob,
   ) {}
+
+  /**
+   * Run the LWCA invoice poll inline for one organisation — the local-dev
+   * shortcut for the scheduled @Cron in LwcaInvoicePollJob. Useful for
+   * the demo and for tightening the seed → review-queue loop.
+   */
+  @Post('force-sync/:orgId')
+  @HttpCode(200)
+  async forceSync(@Param('orgId') orgId: string) {
+    this.assertEnabled();
+    return this.lwcaPoll.runForOrg(orgId);
+  }
 
   @Get('fixture-emails')
   listFixtureEmails() {
