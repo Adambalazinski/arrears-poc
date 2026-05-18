@@ -45,6 +45,12 @@ const noopPoll: LwcaInvoicePollJob = {
 
 async function wipe(): Promise<void> {
   await prisma.reviewQueueItem.deleteMany({ where: { organisationId: ORG_ID } });
+  await prisma.classificationResult.deleteMany({
+    where: { case: { organisationId: ORG_ID } },
+  });
+  await prisma.escalationFlag.deleteMany({
+    where: { case: { organisationId: ORG_ID } },
+  });
   await prisma.communication.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.caseEvent.deleteMany({ where: { case: { organisationId: ORG_ID } } });
   await prisma.charge.deleteMany({ where: { organisationId: ORG_ID } });
@@ -344,5 +350,271 @@ describe('ReviewQueueService', () => {
     const { svc } = makeService();
     await svc.approve(seeded.reviewItemId, ACTOR_ID);
     await expect(svc.approve(seeded.reviewItemId, ACTOR_ID)).rejects.toThrow(/already resolved/);
+  });
+});
+
+async function seedInboundLowConfidence(opts: {
+  withClassification?: boolean;
+  reason?: string;
+} = {}): Promise<{ caseId: string; communicationId: string; reviewItemId: string }> {
+  const caseRow = await prisma.case.create({
+    data: {
+      organisationId: ORG_ID,
+      tenancyId: TENANCY_ID,
+      status: 'ACTIVE',
+      openedAt: new Date('2026-05-10T00:00:00Z'),
+      lastKnownBalancePence: 240_000n,
+      lastKnownBalanceAt: new Date(),
+    },
+  });
+  const comm = await prisma.communication.create({
+    data: {
+      caseId: caseRow.id,
+      organisationId: ORG_ID,
+      direction: 'INBOUND',
+      channel: 'EMAIL',
+      status: 'PROCESSED',
+      fromAddress: 'jane@example.com',
+      subject: 'Question about my charges',
+      rawBodyText: 'Could you give me more detail on the additional fees?',
+      receivedAt: new Date('2026-05-18T08:30:00Z'),
+      outlookMessageId: `msg-${caseRow.id}`,
+    },
+  });
+  let classificationResultId: string | null = null;
+  if (opts.withClassification) {
+    const cr = await prisma.classificationResult.create({
+      data: {
+        caseId: caseRow.id,
+        communicationId: comm.id,
+        preFilterMatched: false,
+        modelUsed: 'claude-haiku-4-5',
+        sentiment: 'NEUTRAL',
+        intent: 'COMPLAINT',
+        confidence: 0.91,
+        rationale: 'tenant questioning fee structure',
+        promptTokens: 500,
+        completionTokens: 40,
+        estimatedCostPence: 1,
+      },
+    });
+    classificationResultId = cr.id;
+  }
+  const item = await prisma.reviewQueueItem.create({
+    data: {
+      organisationId: ORG_ID,
+      caseId: caseRow.id,
+      kind: 'INBOUND_LOW_CONFIDENCE',
+      communicationId: comm.id,
+      priority: 'HIGH',
+      classificationResultId,
+    },
+  });
+  return { caseId: caseRow.id, communicationId: comm.id, reviewItemId: item.id };
+}
+
+async function seedHardTriggerEscalation(): Promise<{
+  caseId: string;
+  communicationId: string;
+  reviewItemId: string;
+}> {
+  const caseRow = await prisma.case.create({
+    data: {
+      organisationId: ORG_ID,
+      tenancyId: TENANCY_ID,
+      status: 'ACTIVE',
+      openedAt: new Date('2026-05-10T00:00:00Z'),
+      lastKnownBalancePence: 300_000n,
+      lastKnownBalanceAt: new Date(),
+    },
+  });
+  const comm = await prisma.communication.create({
+    data: {
+      caseId: caseRow.id,
+      organisationId: ORG_ID,
+      direction: 'INBOUND',
+      channel: 'EMAIL',
+      status: 'PROCESSED',
+      fromAddress: 'jane@example.com',
+      subject: 'Bereavement',
+      rawBodyText: 'My partner passed away last week — please give me time.',
+      receivedAt: new Date('2026-05-18T09:00:00Z'),
+      outlookMessageId: `msg-ht-${caseRow.id}`,
+    },
+  });
+  const cr = await prisma.classificationResult.create({
+    data: {
+      caseId: caseRow.id,
+      communicationId: comm.id,
+      preFilterMatched: true,
+      preFilterTriggerKind: 'DOMESTIC_CIRCUMSTANCES',
+      preFilterMatchedKeyword: 'passed away',
+    },
+  });
+  const item = await prisma.reviewQueueItem.create({
+    data: {
+      organisationId: ORG_ID,
+      caseId: caseRow.id,
+      kind: 'HARD_TRIGGER_ESCALATION',
+      communicationId: comm.id,
+      priority: 'URGENT',
+      classificationResultId: cr.id,
+    },
+  });
+  return { caseId: caseRow.id, communicationId: comm.id, reviewItemId: item.id };
+}
+
+describe('ReviewQueueService.list — hasAiRationale flag', () => {
+  it('flags items with a linked classification result', async () => {
+    const inboundLinked = await seedInboundLowConfidence({ withClassification: true });
+    // Add a second inbound item on a different tenancy without a
+    // classification link so we can compare both flag values in one
+    // assertion.
+    await prisma.tenancy.create({
+      data: {
+        id: 'tn-unlinked',
+        organisationId: ORG_ID,
+        propertyId: 'p',
+        status: 'ACTIVE',
+        lastSyncedAt: new Date(),
+      },
+    });
+    const otherCase = await prisma.case.create({
+      data: {
+        organisationId: ORG_ID,
+        tenancyId: 'tn-unlinked',
+        status: 'ACTIVE',
+        openedAt: new Date(),
+        lastKnownBalancePence: 0n,
+        lastKnownBalanceAt: new Date(),
+      },
+    });
+    const otherComm = await prisma.communication.create({
+      data: {
+        caseId: otherCase.id,
+        organisationId: ORG_ID,
+        direction: 'INBOUND',
+        channel: 'EMAIL',
+        status: 'PROCESSED',
+        fromAddress: 'x@example.com',
+        outlookMessageId: 'msg-unlinked',
+      },
+    });
+    const unlinked = await prisma.reviewQueueItem.create({
+      data: {
+        organisationId: ORG_ID,
+        caseId: otherCase.id,
+        kind: 'INBOUND_LOW_CONFIDENCE',
+        communicationId: otherComm.id,
+        priority: 'HIGH',
+        classificationResultId: null,
+      },
+    });
+
+    const { svc } = makeService();
+    const items = await svc.list(ORG_ID);
+    const byId = new Map(items.map((i) => [i.id, i]));
+    expect(byId.get(inboundLinked.reviewItemId)?.hasAiRationale).toBe(true);
+    expect(byId.get(unlinked.id)?.hasAiRationale).toBe(false);
+  });
+});
+
+describe('ReviewQueueService.get — classification + inbound body', () => {
+  it('returns the classification panel for INBOUND_LOW_CONFIDENCE with a linked result', async () => {
+    const seeded = await seedInboundLowConfidence({ withClassification: true });
+    const { svc } = makeService();
+    const detail = await svc.get(seeded.reviewItemId);
+    expect(detail.classification?.modelUsed).toBe('claude-haiku-4-5');
+    expect(detail.classification?.sentiment).toBe('NEUTRAL');
+    expect(detail.classification?.intent).toBe('COMPLAINT');
+    expect(detail.classification?.confidence).toBe('0.91');
+    expect(detail.classification?.rationale).toBe('tenant questioning fee structure');
+    expect(detail.inbound?.rawBodyText).toBe(
+      'Could you give me more detail on the additional fees?',
+    );
+  });
+
+  it('returns null classification and still shows inbound body when classify failed', async () => {
+    const seeded = await seedInboundLowConfidence({ withClassification: false });
+    const { svc } = makeService();
+    const detail = await svc.get(seeded.reviewItemId);
+    expect(detail.classification).toBeNull();
+    expect(detail.inbound?.rawBodyText).toBe(
+      'Could you give me more detail on the additional fees?',
+    );
+  });
+
+  it('returns pre-filter trigger details for HARD_TRIGGER_ESCALATION', async () => {
+    const seeded = await seedHardTriggerEscalation();
+    const { svc } = makeService();
+    const detail = await svc.get(seeded.reviewItemId);
+    expect(detail.classification?.preFilterMatched).toBe(true);
+    expect(detail.classification?.preFilterTriggerKind).toBe('DOMESTIC_CIRCUMSTANCES');
+    expect(detail.classification?.preFilterMatchedKeyword).toBe('passed away');
+    expect(detail.inbound?.rawBodyText).toContain('passed away');
+  });
+});
+
+describe('ReviewQueueService.dismiss', () => {
+  it('resolves an INBOUND_LOW_CONFIDENCE item with HANDLER_ACTIONED and emits HANDLER_ASSIGNED', async () => {
+    const seeded = await seedInboundLowConfidence({ withClassification: true });
+    const { svc } = makeService();
+    const res = await svc.dismiss(seeded.reviewItemId, ACTOR_ID, 'called tenant directly');
+    expect(res.ok).toBe(true);
+
+    const item = await prisma.reviewQueueItem.findUniqueOrThrow({
+      where: { id: seeded.reviewItemId },
+    });
+    expect(item.resolution).toBe('HANDLER_ACTIONED');
+    expect(item.resolvedByUserId).toBe(ACTOR_ID);
+
+    // The INBOUND communication's status is untouched.
+    const comm = await prisma.communication.findUniqueOrThrow({
+      where: { id: seeded.communicationId },
+    });
+    expect(comm.status).toBe('PROCESSED');
+
+    const event = await prisma.caseEvent.findFirstOrThrow({
+      where: { caseId: seeded.caseId, kind: 'HANDLER_ASSIGNED' },
+    });
+    const payload = event.payloadJson as Record<string, unknown>;
+    expect(payload.action).toBe('dismissed');
+    expect(payload.note).toBe('called tenant directly');
+    expect(payload.kind).toBe('INBOUND_LOW_CONFIDENCE');
+  });
+
+  it('also accepts HARD_TRIGGER_ESCALATION items', async () => {
+    const seeded = await seedHardTriggerEscalation();
+    const { svc } = makeService();
+    await svc.dismiss(seeded.reviewItemId, ACTOR_ID);
+    const item = await prisma.reviewQueueItem.findUniqueOrThrow({
+      where: { id: seeded.reviewItemId },
+    });
+    expect(item.resolution).toBe('HANDLER_ACTIONED');
+  });
+
+  it('refuses to dismiss an OUTBOUND_DRAFT_APPROVAL item', async () => {
+    const seeded = await seedDraft();
+    const { svc } = makeService();
+    await expect(svc.dismiss(seeded.reviewItemId, ACTOR_ID)).rejects.toThrow(
+      /dismiss only applies to inbound/,
+    );
+  });
+
+  it('refuses to dismiss an already-resolved item', async () => {
+    const seeded = await seedInboundLowConfidence();
+    const { svc } = makeService();
+    await svc.dismiss(seeded.reviewItemId, ACTOR_ID);
+    await expect(svc.dismiss(seeded.reviewItemId, ACTOR_ID)).rejects.toThrow(
+      /already resolved/,
+    );
+  });
+
+  it('refuses reject() on an INBOUND_LOW_CONFIDENCE item (use dismiss instead)', async () => {
+    const seeded = await seedInboundLowConfidence();
+    const { svc } = makeService();
+    await expect(svc.reject(seeded.reviewItemId, ACTOR_ID, 'no')).rejects.toThrow(
+      /use dismiss for inbound items/,
+    );
   });
 });

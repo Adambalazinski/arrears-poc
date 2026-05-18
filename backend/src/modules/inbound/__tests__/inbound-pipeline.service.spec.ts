@@ -524,6 +524,7 @@ describe('InboundPipelineService — routine fixtures classify + draft', () => {
       });
       expect(rqi.priority).toBe('NORMAL');
       expect(rqi.communicationId).toBe(draftCommunicationId);
+      expect(rqi.classificationResultId).toBe(cr.id);
 
       // Two timeline events: CLASSIFICATION_PRODUCED + COMMUNICATION_DRAFTED.
       expect(

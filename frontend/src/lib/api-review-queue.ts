@@ -1,19 +1,29 @@
 import { apiFetch, apiJson } from './api-client';
 
+export type ReviewItemKind =
+  | 'OUTBOUND_DRAFT_APPROVAL'
+  | 'INBOUND_LOW_CONFIDENCE'
+  | 'HARD_TRIGGER_ESCALATION';
+
+export type CommunicationDirection = 'INBOUND' | 'OUTBOUND';
+
 export interface ReviewQueueListItem {
   id: string;
   organisationId: string;
   caseId: string;
-  kind: 'OUTBOUND_DRAFT_APPROVAL' | 'INBOUND_LOW_CONFIDENCE' | 'HARD_TRIGGER_ESCALATION';
+  kind: ReviewItemKind;
   priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
   createdAt: string;
   resolvedAt: string | null;
   resolution: string | null;
+  hasAiRationale: boolean;
   communication: {
     id: string;
+    direction: CommunicationDirection;
     subject: string | null;
     consolidatedStage: string | null;
     toAddress: string | null;
+    fromAddress: string | null;
     bodyMarkdown: string | null;
     createdAt: string;
   } | null;
@@ -22,6 +32,7 @@ export interface ReviewQueueListItem {
 export interface ReviewQueueItemDetail extends ReviewQueueListItem {
   communication:
     | (ReviewQueueListItem['communication'] & {
+        rawBodyText: string | null;
         charges: Array<{
           id: string;
           lwcaInvoiceId: string;
@@ -31,6 +42,34 @@ export interface ReviewQueueItemDetail extends ReviewQueueListItem {
         }>;
       })
     | null;
+  classification: {
+    id: string;
+    preFilterMatched: boolean;
+    preFilterTriggerKind: string | null;
+    preFilterMatchedKeyword: string | null;
+    modelUsed: string | null;
+    sentiment: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'DISTRESSED' | null;
+    intent:
+      | 'PAYMENT_PROMISE'
+      | 'PAYMENT_CONFIRMATION'
+      | 'QUERY'
+      | 'COMPLAINT'
+      | 'REQUEST_FOR_INFO'
+      | 'UNCLEAR'
+      | null;
+    confidence: string | null;
+    rationale: string | null;
+    promptTokens: number | null;
+    completionTokens: number | null;
+    estimatedCostPence: number | null;
+  } | null;
+  inbound: {
+    id: string;
+    subject: string | null;
+    fromAddress: string | null;
+    rawBodyText: string | null;
+    receivedAt: string | null;
+  } | null;
 }
 
 export interface BalanceChangedResponse {
@@ -93,5 +132,12 @@ export const rejectReviewQueueItem = (id: string, reason: string) =>
   apiJson<{ ok: true }>(`/api/review-queue/${encodeURIComponent(id)}/reject`, {
     method: 'POST',
     body: JSON.stringify({ reason }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+export const dismissReviewQueueItem = (id: string, note?: string) =>
+  apiJson<{ ok: true }>(`/api/review-queue/${encodeURIComponent(id)}/dismiss`, {
+    method: 'POST',
+    body: JSON.stringify(note ? { note } : {}),
     headers: { 'Content-Type': 'application/json' },
   });

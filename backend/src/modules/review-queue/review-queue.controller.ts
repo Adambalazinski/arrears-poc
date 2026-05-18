@@ -3,7 +3,14 @@ import { ZodBody } from '../../common/zod/zod-validation.pipe';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { RequestUser } from '../auth/types';
-import { ApproveSchema, RejectSchema, type ApproveDto, type RejectDto } from './dto';
+import {
+  ApproveSchema,
+  DismissSchema,
+  RejectSchema,
+  type ApproveDto,
+  type DismissDto,
+  type RejectDto,
+} from './dto';
 import { ReviewQueueService } from './review-queue.service';
 
 @Controller('review-queue')
@@ -39,5 +46,15 @@ export class ReviewQueueController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.service.reject(id, user.id, body.reason);
+  }
+
+  @Post(':id/dismiss')
+  @HttpCode(200)
+  dismiss(
+    @Param('id') id: string,
+    @Body(new ZodBody(DismissSchema)) body: DismissDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.service.dismiss(id, user.id, body.note);
   }
 }

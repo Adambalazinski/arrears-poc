@@ -307,6 +307,10 @@ export class InboundPipelineService {
 
     const now = this.clock.now();
     const draftCommunicationId = await this.prisma.$transaction(async (tx) => {
+      const classificationRow = await tx.classificationResult.findUnique({
+        where: { communicationId: comm.id },
+        select: { id: true },
+      });
       const draftComm = await tx.communication.create({
         data: {
           caseId: comm.caseId,
@@ -330,6 +334,7 @@ export class InboundPipelineService {
           kind: ReviewItemKind.OUTBOUND_DRAFT_APPROVAL,
           priority: ReviewItemPriority.NORMAL,
           communicationId: draftComm.id,
+          classificationResultId: classificationRow?.id ?? null,
         },
       });
       await tx.caseEvent.create({
@@ -389,6 +394,15 @@ export class InboundPipelineService {
         });
         flagId = flag.id;
       }
+      // When classify succeeded but routing chose low-confidence (or
+      // when draft failed downstream), a ClassificationResult row
+      // exists on the inbound — link it so the UI can show the
+      // rationale. For pre-classify failures (EMPTY_BODY, SPEND_CAP,
+      // etc.) there's no row and this stays null.
+      const classificationRow = await tx.classificationResult.findUnique({
+        where: { communicationId: comm.id },
+        select: { id: true },
+      });
       await tx.reviewQueueItem.create({
         data: {
           caseId: comm.caseId,
@@ -396,6 +410,7 @@ export class InboundPipelineService {
           kind: ReviewItemKind.INBOUND_LOW_CONFIDENCE,
           priority: ReviewItemPriority.HIGH,
           communicationId: comm.id,
+          classificationResultId: classificationRow?.id ?? null,
         },
       });
       await tx.caseEvent.create({
@@ -527,7 +542,7 @@ export class InboundPipelineService {
     const raisedReason = `Inbound message matched hard trigger: "${keyword}"`;
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.classificationResult.create({
+      const classificationRow = await tx.classificationResult.create({
         data: {
           caseId: comm.caseId,
           communicationId: comm.id,
@@ -582,6 +597,7 @@ export class InboundPipelineService {
           kind: ReviewItemKind.HARD_TRIGGER_ESCALATION,
           priority: ReviewItemPriority.URGENT,
           communicationId: comm.id,
+          classificationResultId: classificationRow.id,
         },
       });
 

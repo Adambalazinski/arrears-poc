@@ -6,10 +6,13 @@ import { getOrganisation } from '@/lib/api-orgs';
 import { formatPence } from '@/lib/api-cases';
 import {
   approveReviewQueueItem,
+  dismissReviewQueueItem,
   getReviewQueueItem,
   listReviewQueue,
   rejectReviewQueueItem,
   type BalanceChangedDetail,
+  type ReviewItemKind,
+  type ReviewQueueItemDetail,
   type ReviewQueueListItem,
 } from '@/lib/api-review-queue';
 
@@ -79,28 +82,37 @@ export function ReviewQueuePage(): JSX.Element {
             </p>
           )}
           <ul className="divide-y divide-border">
-            {sorted.map((it) => (
-              <li
-                key={it.id}
-                className={`px-3 py-2 cursor-pointer hover:bg-muted/30 ${
-                  selectedId === it.id ? 'bg-muted/40' : ''
-                }`}
-                onClick={() => setSelectedId(it.id)}
-              >
-                <div className="flex items-center justify-between text-xs gap-2">
-                  <PriorityBadge priority={it.priority} />
-                  <code className="text-muted-foreground">
-                    {it.communication?.consolidatedStage ?? it.kind}
-                  </code>
-                </div>
-                <div className="text-sm mt-1 truncate">
-                  {it.communication?.subject ?? '(no subject)'}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1 truncate">
-                  → {it.communication?.toAddress ?? '—'}
-                </div>
-              </li>
-            ))}
+            {sorted.map((it) => {
+              const direction = it.communication?.direction;
+              const counterparty =
+                direction === 'INBOUND'
+                  ? it.communication?.fromAddress
+                  : it.communication?.toAddress;
+              const arrow = direction === 'INBOUND' ? '←' : '→';
+              return (
+                <li
+                  key={it.id}
+                  className={`px-3 py-2 cursor-pointer hover:bg-muted/30 ${
+                    selectedId === it.id ? 'bg-muted/40' : ''
+                  }`}
+                  onClick={() => setSelectedId(it.id)}
+                >
+                  <div className="flex items-center justify-between text-xs gap-2">
+                    <PriorityBadge priority={it.priority} />
+                    <div className="flex items-center gap-1.5">
+                      {it.hasAiRationale && <AiChip />}
+                      <KindChip kind={it.kind} />
+                    </div>
+                  </div>
+                  <div className="text-sm mt-1 truncate">
+                    {it.communication?.subject ?? '(no subject)'}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 truncate">
+                    {arrow} {counterparty ?? '—'}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
 
@@ -114,6 +126,37 @@ export function ReviewQueuePage(): JSX.Element {
         </div>
       </section>
     </main>
+  );
+}
+
+function KindChip({ kind }: { kind: ReviewItemKind }): JSX.Element {
+  const label =
+    kind === 'OUTBOUND_DRAFT_APPROVAL'
+      ? 'DRAFT'
+      : kind === 'INBOUND_LOW_CONFIDENCE'
+        ? 'INBOUND'
+        : 'ESCALATION';
+  const colour =
+    kind === 'HARD_TRIGGER_ESCALATION'
+      ? 'bg-destructive/15 text-destructive'
+      : kind === 'INBOUND_LOW_CONFIDENCE'
+        ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+        : 'bg-muted text-muted-foreground';
+  return (
+    <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${colour}`}>
+      {label}
+    </span>
+  );
+}
+
+function AiChip(): JSX.Element {
+  return (
+    <span
+      title="AI rationale available"
+      className="inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-300"
+    >
+      AI
+    </span>
   );
 }
 
@@ -140,33 +183,9 @@ function ReviewDetail({
   itemId: string;
   onResolved: () => void;
 }): JSX.Element {
-  const qc = useQueryClient();
   const detail = useQuery({
     queryKey: ['review-queue-item', itemId],
     queryFn: () => getReviewQueueItem(itemId),
-  });
-  const [edit, setEdit] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [balanceChanged, setBalanceChanged] = useState<BalanceChangedDetail | null>(null);
-
-  const approve = useMutation({
-    mutationFn: () => approveReviewQueueItem(itemId, edit ?? undefined),
-    onSuccess: async (r) => {
-      if (!r.ok) {
-        setBalanceChanged(r.balanceChanged);
-        return;
-      }
-      await qc.invalidateQueries({ queryKey: ['review-queue'] });
-      onResolved();
-    },
-  });
-
-  const reject = useMutation({
-    mutationFn: () => rejectReviewQueueItem(itemId, rejectReason.trim()),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['review-queue'] });
-      onResolved();
-    },
   });
 
   if (detail.isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -178,36 +197,179 @@ function ReviewDetail({
     );
   }
   const it = detail.data;
-  const comm = it.communication;
 
   return (
     <div className="space-y-4">
-      <div className="border border-border rounded p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold">{comm?.subject ?? '(no subject)'}</h2>
+      <DetailHeader it={it} />
+      {it.kind === 'OUTBOUND_DRAFT_APPROVAL' ? (
+        <OutboundDraftPanel it={it} onResolved={onResolved} />
+      ) : (
+        <InboundReviewPanel it={it} onResolved={onResolved} />
+      )}
+    </div>
+  );
+}
+
+function DetailHeader({ it }: { it: ReviewQueueItemDetail }): JSX.Element {
+  const comm = it.communication;
+  const isInbound = it.kind !== 'OUTBOUND_DRAFT_APPROVAL';
+  return (
+    <div className="border border-border rounded p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg font-semibold">{comm?.subject ?? '(no subject)'}</h2>
+        <div className="flex items-center gap-2">
+          {it.hasAiRationale && <AiChip />}
+          <KindChip kind={it.kind} />
           <PriorityBadge priority={it.priority} />
         </div>
-        <dl className="grid grid-cols-[120px_1fr] gap-y-1 text-xs">
-          <dt className="text-muted-foreground">Case</dt>
-          <dd>
-            <Link
-              to={`/cases/${encodeURIComponent(it.caseId)}`}
-              className="font-mono underline"
-            >
-              {it.caseId}
-            </Link>
-          </dd>
-          <dt className="text-muted-foreground">Recipient</dt>
-          <dd>{comm?.toAddress ?? '—'}</dd>
-          <dt className="text-muted-foreground">Stage</dt>
-          <dd>{comm?.consolidatedStage ?? '—'}</dd>
-          <dt className="text-muted-foreground">Drafted</dt>
-          <dd>{comm ? new Date(comm.createdAt).toLocaleString('en-GB') : '—'}</dd>
-        </dl>
       </div>
+      <dl className="grid grid-cols-[120px_1fr] gap-y-1 text-xs">
+        <dt className="text-muted-foreground">Case</dt>
+        <dd>
+          <Link
+            to={`/cases/${encodeURIComponent(it.caseId)}`}
+            className="font-mono underline"
+          >
+            {it.caseId}
+          </Link>
+        </dd>
+        {isInbound ? (
+          <>
+            <dt className="text-muted-foreground">From</dt>
+            <dd>{comm?.fromAddress ?? '—'}</dd>
+            <dt className="text-muted-foreground">Received</dt>
+            <dd>
+              {it.inbound?.receivedAt
+                ? new Date(it.inbound.receivedAt).toLocaleString('en-GB')
+                : '—'}
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt className="text-muted-foreground">Recipient</dt>
+            <dd>{comm?.toAddress ?? '—'}</dd>
+            <dt className="text-muted-foreground">Stage</dt>
+            <dd>{comm?.consolidatedStage ?? '—'}</dd>
+            <dt className="text-muted-foreground">Drafted</dt>
+            <dd>{comm ? new Date(comm.createdAt).toLocaleString('en-GB') : '—'}</dd>
+          </>
+        )}
+      </dl>
+    </div>
+  );
+}
+
+function ClassificationPanel({
+  classification,
+}: {
+  classification: NonNullable<ReviewQueueItemDetail['classification']>;
+}): JSX.Element {
+  if (classification.preFilterMatched) {
+    return (
+      <div className="border border-destructive/40 bg-destructive/5 rounded p-4 text-sm space-y-1">
+        <h3 className="font-medium text-destructive">Hard-trigger pre-filter match</h3>
+        <p>
+          Trigger: <code className="font-mono">{classification.preFilterTriggerKind}</code>
+        </p>
+        <p>
+          Keyword matched:{' '}
+          <code className="font-mono">{classification.preFilterMatchedKeyword}</code>
+        </p>
+        <p className="text-xs text-muted-foreground">
+          The LLM was deliberately not invoked — this message bypassed
+          classification and was routed to the URGENT queue. Action this
+          escalation outside the system, then dismiss.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="border border-blue-500/30 bg-blue-500/5 rounded p-4 text-sm space-y-2">
+      <h3 className="font-medium">AI classification</h3>
+      <dl className="grid grid-cols-[120px_1fr] gap-y-1 text-xs">
+        <dt className="text-muted-foreground">Model</dt>
+        <dd className="font-mono">{classification.modelUsed ?? '—'}</dd>
+        <dt className="text-muted-foreground">Sentiment</dt>
+        <dd>{classification.sentiment ?? '—'}</dd>
+        <dt className="text-muted-foreground">Intent</dt>
+        <dd>{classification.intent ?? '—'}</dd>
+        <dt className="text-muted-foreground">Confidence</dt>
+        <dd>
+          {classification.confidence !== null
+            ? `${(Number(classification.confidence) * 100).toFixed(0)}%`
+            : '—'}
+        </dd>
+        <dt className="text-muted-foreground">Cost</dt>
+        <dd>
+          {classification.estimatedCostPence !== null
+            ? `${classification.estimatedCostPence}p (${classification.promptTokens ?? 0}+${classification.completionTokens ?? 0} tokens)`
+            : '—'}
+        </dd>
+      </dl>
+      {classification.rationale && (
+        <p className="text-xs italic text-muted-foreground">“{classification.rationale}”</p>
+      )}
+    </div>
+  );
+}
+
+function InboundOriginalPanel({
+  inbound,
+}: {
+  inbound: NonNullable<ReviewQueueItemDetail['inbound']>;
+}): JSX.Element {
+  return (
+    <div className="border border-border rounded p-4">
+      <h3 className="text-sm font-medium text-muted-foreground mb-2">
+        Original inbound message
+      </h3>
+      <pre className="whitespace-pre-wrap font-mono text-xs">
+        {inbound.rawBodyText ?? '(no body)'}
+      </pre>
+    </div>
+  );
+}
+
+function OutboundDraftPanel({
+  it,
+  onResolved,
+}: {
+  it: ReviewQueueItemDetail;
+  onResolved: () => void;
+}): JSX.Element {
+  const qc = useQueryClient();
+  const comm = it.communication;
+  const [edit, setEdit] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [balanceChanged, setBalanceChanged] = useState<BalanceChangedDetail | null>(null);
+
+  const approve = useMutation({
+    mutationFn: () => approveReviewQueueItem(it.id, edit ?? undefined),
+    onSuccess: async (r) => {
+      if (!r.ok) {
+        setBalanceChanged(r.balanceChanged);
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ['review-queue'] });
+      onResolved();
+    },
+  });
+
+  const reject = useMutation({
+    mutationFn: () => rejectReviewQueueItem(it.id, rejectReason.trim()),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['review-queue'] });
+      onResolved();
+    },
+  });
+
+  return (
+    <>
+      {it.classification && <ClassificationPanel classification={it.classification} />}
+      {it.inbound && <InboundOriginalPanel inbound={it.inbound} />}
 
       <div className="border border-border rounded p-4">
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Draft body</h3>
+        <h3 className="text-sm font-medium text-muted-foreground mb-2">Draft reply</h3>
         {edit !== null ? (
           <textarea
             rows={20}
@@ -321,7 +483,65 @@ function ReviewDetail({
           {reject.error instanceof Error ? reject.error.message : 'reject failed'}
         </p>
       )}
-    </div>
+    </>
+  );
+}
+
+function InboundReviewPanel({
+  it,
+  onResolved,
+}: {
+  it: ReviewQueueItemDetail;
+  onResolved: () => void;
+}): JSX.Element {
+  const qc = useQueryClient();
+  const [note, setNote] = useState('');
+
+  const dismiss = useMutation({
+    mutationFn: () =>
+      dismissReviewQueueItem(it.id, note.trim() ? note.trim() : undefined),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['review-queue'] });
+      onResolved();
+    },
+  });
+
+  return (
+    <>
+      {it.classification && <ClassificationPanel classification={it.classification} />}
+      {it.inbound && <InboundOriginalPanel inbound={it.inbound} />}
+
+      <div className="border border-border rounded p-4 space-y-3">
+        <h3 className="text-sm font-medium text-muted-foreground">Handler action</h3>
+        <p className="text-xs text-muted-foreground">
+          {it.kind === 'HARD_TRIGGER_ESCALATION'
+            ? 'This message hit a hard-trigger pre-filter. Handle the escalation outside the system (phone call, in-person, manual email), then dismiss.'
+            : 'AI could not auto-draft a reply. Handle the message outside the system and dismiss when done.'}
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            placeholder="optional note (e.g., what you did)"
+            className="flex-1 border border-input rounded px-2 py-1.5 text-sm bg-background"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <button
+            type="button"
+            className="rounded bg-primary text-primary-foreground px-3 py-1.5 text-sm disabled:opacity-50"
+            disabled={dismiss.isPending}
+            onClick={() => dismiss.mutate()}
+          >
+            {dismiss.isPending ? 'Dismissing…' : 'Dismiss'}
+          </button>
+        </div>
+        {dismiss.error && (
+          <p className="text-destructive text-sm">
+            {dismiss.error instanceof Error ? dismiss.error.message : 'dismiss failed'}
+          </p>
+        )}
+      </div>
+    </>
   );
 }
 

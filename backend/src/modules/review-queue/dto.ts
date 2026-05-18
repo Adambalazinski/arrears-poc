@@ -9,3 +9,8 @@ export const RejectSchema = z.object({
   reason: z.string().min(1).max(500),
 });
 export type RejectDto = z.infer<typeof RejectSchema>;
+
+export const DismissSchema = z.object({
+  note: z.string().max(500).optional(),
+});
+export type DismissDto = z.infer<typeof DismissSchema>;
