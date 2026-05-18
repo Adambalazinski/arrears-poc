@@ -149,9 +149,109 @@
         "firstName": "Jane",
         "lastName": "Tenant"
       }
+    },
+    {
+      "id": "lwca-inv-0007",
+      "organisationId": "demo-org",
+      "referenceId": "INV-2026-S8-01",
+      "grossAmount": 120000,
+      "remainAmount": 120000,
+      "dueDate": "2026-02-01",
+      "invoiceDate": "2026-01-15",
+      "status": "UNPAID",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-s8-001",
+      "property": {
+        "propertyId": "prop-s8",
+        "propertyName": "44 Maple Crescent",
+        "propertyAddress1": "44 Maple Crescent",
+        "propertyAddress2": "Birmingham B1 3CC"
+      },
+      "payer": {
+        "payerId": "payer-003",
+        "firstName": "Priya",
+        "lastName": "Patel"
+      }
+    },
+    {
+      "id": "lwca-inv-0008",
+      "organisationId": "demo-org",
+      "referenceId": "INV-2026-S8-02",
+      "grossAmount": 120000,
+      "remainAmount": 120000,
+      "dueDate": "2026-03-01",
+      "invoiceDate": "2026-02-15",
+      "status": "UNPAID",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-s8-001",
+      "property": {
+        "propertyId": "prop-s8",
+        "propertyName": "44 Maple Crescent",
+        "propertyAddress1": "44 Maple Crescent",
+        "propertyAddress2": "Birmingham B1 3CC"
+      },
+      "payer": {
+        "payerId": "payer-003",
+        "firstName": "Priya",
+        "lastName": "Patel"
+      }
+    },
+    {
+      "id": "lwca-inv-0009",
+      "organisationId": "demo-org",
+      "referenceId": "INV-2026-S8-03",
+      "grossAmount": 120000,
+      "remainAmount": 120000,
+      "dueDate": "2026-04-01",
+      "invoiceDate": "2026-03-15",
+      "status": "UNPAID",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-s8-001",
+      "property": {
+        "propertyId": "prop-s8",
+        "propertyName": "44 Maple Crescent",
+        "propertyAddress1": "44 Maple Crescent",
+        "propertyAddress2": "Birmingham B1 3CC"
+      },
+      "payer": {
+        "payerId": "payer-003",
+        "firstName": "Priya",
+        "lastName": "Patel"
+      }
+    },
+    {
+      "id": "lwca-inv-0010",
+      "organisationId": "demo-org",
+      "referenceId": "INV-2026-S8-04",
+      "grossAmount": 120000,
+      "remainAmount": 120000,
+      "dueDate": "2026-05-01",
+      "invoiceDate": "2026-04-15",
+      "status": "UNPAID",
+      "paymentCycleType": "MONTHLY",
+      "type": "RENT",
+      "payeeType": "LANDLORD",
+      "tenancyId": "tenancy-s8-001",
+      "property": {
+        "propertyId": "prop-s8",
+        "propertyName": "44 Maple Crescent",
+        "propertyAddress1": "44 Maple Crescent",
+        "propertyAddress2": "Birmingham B1 3CC"
+      },
+      "payer": {
+        "payerId": "payer-003",
+        "firstName": "Priya",
+        "lastName": "Patel"
+      }
     }
   ],
-  "totalElements": 6,
+  "totalElements": 10,
   "totalPages": 1,
   "size": 100,
   "number": 0,

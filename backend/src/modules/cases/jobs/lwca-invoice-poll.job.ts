@@ -10,6 +10,7 @@ import type { LwcaTenancyHint } from '../../../integrations/lwca/lwca-invoice.ma
 import { ChargesService } from '../../charges/charges.service';
 import { TenancyRefreshService } from '../../tenancies/tenancy-refresh.service';
 import { CasesService } from '../cases.service';
+import { S8EvaluationService } from '../s8-evaluation.service';
 
 export interface PollRunResult {
   organisationId: string;
@@ -49,6 +50,7 @@ export class LwcaInvoicePollJob {
     private readonly cases: CasesService,
     private readonly charges: ChargesService,
     private readonly tenancyRefresh: TenancyRefreshService,
+    private readonly s8: S8EvaluationService,
   ) {}
 
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -117,6 +119,20 @@ export class LwcaInvoicePollJob {
       for (const caseId of touchedCases) {
         const r = await this.cases.recomputeAndMaybeClose(caseId);
         if (r.closed) casesClosed++;
+        // R6: re-evaluate S8 eligibility against the freshly-synced balance.
+        // Charges were just upserted from LWCA, so R5.1 (live balance) is
+        // already satisfied. Errors are logged but never fail the poll run.
+        if (!r.closed) {
+          try {
+            await this.s8.evaluate(caseId);
+          } catch (err) {
+            this.logger.warn(
+              `lwca-invoice-poll: s8 evaluation for case ${caseId} failed — ${
+                err instanceof Error ? err.message : err
+              }`,
+            );
+          }
+        }
       }
       await this.finishRun(run.id, SyncJobStatus.COMPLETED, {
         processed,

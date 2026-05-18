@@ -7,7 +7,9 @@ import type { PrismaService } from '../../../../integrations/prisma/prisma.servi
 import { ChargesService } from '../../../charges/charges.service';
 import { TenancyRefreshService } from '../../../tenancies/tenancy-refresh.service';
 import { CasesService } from '../../cases.service';
+import { S8EvaluationService } from '../../s8-evaluation.service';
 import { LwcaInvoicePollJob } from '../lwca-invoice-poll.job';
+import { DEFAULT_ORG_CONFIG } from '../../../organisations/defaults';
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://arrears:arrears@localhost:5432/arrears_poc';
@@ -25,6 +27,9 @@ async function wipeAll(): Promise<void> {
   await prisma.reviewQueueItem.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.communication.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.chaseScheduleEntry.deleteMany({
+    where: { case: { organisationId: ORG_ID } },
+  });
+  await prisma.escalationFlag.deleteMany({
     where: { case: { organisationId: ORG_ID } },
   });
   await prisma.caseEvent.deleteMany({ where: { case: { organisationId: ORG_ID } } });
@@ -50,7 +55,13 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await wipeAll();
-  await prisma.organisation.create({ data: { id: ORG_ID, name: 'Demo' } });
+  await prisma.organisation.create({
+    data: {
+      id: ORG_ID,
+      name: 'Demo',
+      config: { create: { ...DEFAULT_ORG_CONFIG } },
+    },
+  });
 });
 
 afterEach(async () => {
@@ -66,12 +77,14 @@ function makeJob(): LwcaInvoicePollJob {
     prisma as unknown as PrismaService,
     rentancy,
   );
+  const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
   return new LwcaInvoicePollJob(
     prisma as unknown as PrismaService,
     lwca,
     cases,
     charges,
     tenancyRefresh,
+    s8,
   );
 }
 
@@ -80,11 +93,12 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
     const job = makeJob();
     const result = await job.runForOrg(ORG_ID);
 
-    // The fixture has 6 invoices; 3 survive the arrears filter.
-    expect(result.processed).toBe(3);
-    expect(result.created).toBe(3);
+    // The fixture has 10 invoices; 7 survive the arrears filter
+    // (3 on the original tenancies + 4 on the S8 demo tenancy).
+    expect(result.processed).toBe(7);
+    expect(result.created).toBe(7);
     expect(result.updated).toBe(0);
-    expect(result.casesOpened).toBe(2);
+    expect(result.casesOpened).toBe(3);
     expect(result.casesClosed).toBe(0);
     expect(result.status).toBe('COMPLETED');
 
@@ -93,7 +107,11 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
       orderBy: { tenancyId: 'asc' },
       include: { charges: true },
     });
-    expect(cases.map((c) => c.tenancyId)).toEqual(['tenancy-abc-001', 'tenancy-xyz-002']);
+    expect(cases.map((c) => c.tenancyId)).toEqual([
+      'tenancy-abc-001',
+      'tenancy-s8-001',
+      'tenancy-xyz-002',
+    ]);
 
     const abc = cases.find((c) => c.tenancyId === 'tenancy-abc-001')!;
     expect(abc.charges.map((c) => c.lwcaInvoiceId).sort()).toEqual([
@@ -106,6 +124,17 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
     const xyz = cases.find((c) => c.tenancyId === 'tenancy-xyz-002')!;
     expect(xyz.charges.map((c) => c.lwcaInvoiceId)).toEqual(['lwca-inv-0003']);
     expect(xyz.lastKnownBalancePence).toBe(120000n);
+
+    const s8 = cases.find((c) => c.tenancyId === 'tenancy-s8-001')!;
+    expect(s8.charges.map((c) => c.lwcaInvoiceId).sort()).toEqual([
+      'lwca-inv-0007',
+      'lwca-inv-0008',
+      'lwca-inv-0009',
+      'lwca-inv-0010',
+    ]);
+    // 4 × £1200 = £4800 outstanding; threshold (3 months) = £3600 -> S8 raised.
+    expect(s8.lastKnownBalancePence).toBe(480000n);
+    expect(s8.s8Eligible).toBe(true);
   });
 
   it('is idempotent: re-running does not duplicate cases, charges, or events', async () => {
@@ -113,25 +142,25 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
     await job.runForOrg(ORG_ID);
     const r2 = await job.runForOrg(ORG_ID);
 
-    expect(r2.processed).toBe(3);
+    expect(r2.processed).toBe(7);
     expect(r2.created).toBe(0);
-    expect(r2.updated).toBe(3);
+    expect(r2.updated).toBe(7);
     expect(r2.casesOpened).toBe(0);
 
-    expect(await prisma.case.count({ where: { organisationId: ORG_ID } })).toBe(2);
-    expect(await prisma.charge.count({ where: { organisationId: ORG_ID } })).toBe(3);
+    expect(await prisma.case.count({ where: { organisationId: ORG_ID } })).toBe(3);
+    expect(await prisma.charge.count({ where: { organisationId: ORG_ID } })).toBe(7);
 
-    // Exactly two CASE_OPENED events (one per case) total across both runs.
+    // Exactly three CASE_OPENED events (one per case) total across both runs.
     const opened = await prisma.caseEvent.count({
       where: { case: { organisationId: ORG_ID }, kind: 'CASE_OPENED' },
     });
-    expect(opened).toBe(2);
+    expect(opened).toBe(3);
 
-    // Exactly three CHARGE_ADDED events.
+    // Exactly seven CHARGE_ADDED events.
     const added = await prisma.caseEvent.count({
       where: { case: { organisationId: ORG_ID }, kind: 'CHARGE_ADDED' },
     });
-    expect(added).toBe(3);
+    expect(added).toBe(7);
   });
 
   it('upserts the Tenancy with LWCA property hints and Rentancy fields after case open', async () => {
@@ -162,6 +191,7 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
       'contact-guarantor-001',
       'contact-tenant-001',
       'contact-tenant-002',
+      'contact-tenant-003',
     ]);
 
     const tenant = contacts.find((c) => c.id === 'contact-tenant-001')!;
@@ -187,8 +217,8 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
     });
     expect(runs).toHaveLength(1);
     expect(runs[0]!.status).toBe('COMPLETED');
-    expect(runs[0]!.itemsProcessed).toBe(3);
-    expect(runs[0]!.itemsCreated).toBe(3);
+    expect(runs[0]!.itemsProcessed).toBe(7);
+    expect(runs[0]!.itemsCreated).toBe(7);
     expect(runs[0]!.itemsUpdated).toBe(0);
     expect(runs[0]!.finishedAt).not.toBeNull();
   });
@@ -204,12 +234,14 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
       prisma as unknown as PrismaService,
       new FixtureRentancyClient(RENTANCY_FIXTURE_DIR),
     );
+    const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
     const job = new LwcaInvoicePollJob(
       prisma as unknown as PrismaService,
       failing,
       cases,
       charges,
       tenancyRefresh,
+      s8,
     );
     await expect(job.runForOrg(ORG_ID)).rejects.toThrow('boom');
 

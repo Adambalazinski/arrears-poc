@@ -6,11 +6,12 @@ import { TenanciesModule } from '../tenancies/tenancies.module';
 import { CasesController } from './cases.controller';
 import { CasesService } from './cases.service';
 import { LwcaInvoicePollJob } from './jobs/lwca-invoice-poll.job';
+import { S8EvaluationService } from './s8-evaluation.service';
 
 @Module({
   imports: [AuthModule, LwcaModule, ChargesModule, TenanciesModule],
   controllers: [CasesController],
-  providers: [CasesService, LwcaInvoicePollJob],
-  exports: [CasesService, LwcaInvoicePollJob],
+  providers: [CasesService, LwcaInvoicePollJob, S8EvaluationService],
+  exports: [CasesService, LwcaInvoicePollJob, S8EvaluationService],
 })
 export class CasesModule {}

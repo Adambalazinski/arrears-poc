@@ -1,0 +1,15 @@
+{
+  "id": "tenancy-s8-001",
+  "tenancyPropertyId": "prop-s8",
+  "status": "ACTIVE",
+  "reference": "TN-2025-S8",
+  "paymentDay": 1,
+  "tenants": ["contact-tenant-003"],
+  "guarantorIds": [],
+  "isRentGuaranteeRequired": false,
+  "askingPrice": 120000,
+  "agreedPrice": 120000,
+  "additionalCosts": [],
+  "startDate": "2025-01-01",
+  "endDate": null
+}

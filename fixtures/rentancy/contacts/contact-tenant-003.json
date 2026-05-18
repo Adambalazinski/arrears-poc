@@ -1,0 +1,12 @@
+{
+  "id": "contact-tenant-003",
+  "fname": "Priya",
+  "sname": "Patel",
+  "companyName": null,
+  "emails": [
+    { "type": "PERSONAL", "email": "priya.patel@example.com" }
+  ],
+  "phones": [
+    { "type": "MOBILE", "phone": "+447700900003" }
+  ]
+}

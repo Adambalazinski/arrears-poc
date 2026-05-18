@@ -19,6 +19,10 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       'lwca-inv-0001',
       'lwca-inv-0002',
       'lwca-inv-0003',
+      'lwca-inv-0007',
+      'lwca-inv-0008',
+      'lwca-inv-0009',
+      'lwca-inv-0010',
     ]);
   });
 
