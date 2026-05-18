@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   DEFAULT_HARD_TRIGGERS,
   HARD_TRIGGER_SEVERITY,
@@ -43,7 +43,9 @@ export type PreFilterResult =
 export class PreFilterService {
   private readonly triggers: readonly HardTriggerEntry[];
 
-  constructor(triggers: readonly HardTriggerEntry[] = DEFAULT_HARD_TRIGGERS) {
+  constructor(
+    @Optional() triggers: readonly HardTriggerEntry[] = DEFAULT_HARD_TRIGGERS,
+  ) {
     this.triggers = triggers;
   }
 
