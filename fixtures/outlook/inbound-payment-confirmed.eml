@@ -1,0 +1,10 @@
+From: jane.tenant@example.com
+To: arrears-test@lofty-tenant.com
+Subject: Payment sent
+Date: Mon, 18 May 2026 12:15:00 +0100
+Message-ID: <fixture-payment-confirmed-001@example.com>
+Content-Type: text/plain; charset=utf-8
+
+Just to confirm I have transferred the rent this morning. The bank reference is RENT-MAY-2026.
+
+Jane

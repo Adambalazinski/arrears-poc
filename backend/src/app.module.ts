@@ -10,6 +10,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CasesModule } from './modules/cases/cases.module';
 import { ChargesModule } from './modules/charges/charges.module';
 import { ChaseModule } from './modules/chase/chase.module';
+import { AiModule } from './modules/ai/ai.module';
 import { DevToolsModule } from './modules/dev-tools/dev-tools.module';
 import { InboundModule } from './modules/inbound/inbound.module';
 import { OrganisationsModule } from './modules/organisations/organisations.module';
@@ -32,6 +33,7 @@ import { TenanciesModule } from './modules/tenancies/tenancies.module';
     ChaseModule,
     DevToolsModule,
     ReviewQueueModule,
+    AiModule,
     InboundModule,
   ],
   controllers: [HealthController],
