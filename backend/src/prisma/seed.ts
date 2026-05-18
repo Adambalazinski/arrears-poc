@@ -41,7 +41,8 @@ async function main(): Promise<void> {
 
     console.log('\nNext: open http://localhost:5173, click into the org,');
     console.log('add credentials (any non-empty string works in fixtures');
-    console.log('mode), then call POST /api/dev/force-sync/demo-org.');
+    console.log('mode), then:');
+    console.log('  curl -X POST http://localhost:3001/dev/force-sync/demo-org');
   } finally {
     await prisma.$disconnect();
   }

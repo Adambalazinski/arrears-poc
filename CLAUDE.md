@@ -131,6 +131,7 @@ These exist to prevent specific failure modes that have real-world consequences 
 - `docs/working-day.md` — gov.uk source, caching, working-day arithmetic
 - `docs/auth-and-credentials.md` — JWT against Cognito, service-user refresh-token flow for LWCA/Rentancy calls
 - `docs/build-plan.md` — sequenced commit-sized steps for building the POC
+- `docs/demo-script.md` — click-by-click stakeholder demo walkthrough for the six scenarios
 
 ## Build approach for Claude Code
 
