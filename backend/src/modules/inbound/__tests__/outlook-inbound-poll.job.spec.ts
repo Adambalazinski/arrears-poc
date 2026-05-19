@@ -19,6 +19,8 @@ import type {
 import type { PrismaService } from '../../../integrations/prisma/prisma.service';
 import { PreFilterService } from '../../ai/pre-filter.service';
 import { PassThroughRedactor } from '../../ai/redactor';
+import { BreathingSpaceService } from '../../cases/breathing-space.service';
+import { S8EvaluationService } from '../../cases/s8-evaluation.service';
 import { InboundCursorService } from '../inbound-cursor.service';
 import { InboundPipelineService } from '../inbound-pipeline.service';
 import { InboundSenderMatcher } from '../inbound-sender-matcher.service';
@@ -161,12 +163,15 @@ function makeJob(
   vi.spyOn(clock, 'now').mockReturnValue(clockNow);
   const cursor = new InboundCursorService(prisma as unknown as PrismaService);
   const matcher = new InboundSenderMatcher(prisma as unknown as PrismaService);
+  const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
+  const breathingSpace = new BreathingSpaceService(prisma as unknown as PrismaService, s8);
   const pipeline = new InboundPipelineService(
     prisma as unknown as PrismaService,
     clock,
     new PreFilterService(),
     new NotImplementedAnthropicClient(),
     new PassThroughRedactor(),
+    breathingSpace,
   );
   // Poll-job tests stub the pipeline by default — the pipeline has its
   // own spec. Tests that care about the spy's invocation pass an

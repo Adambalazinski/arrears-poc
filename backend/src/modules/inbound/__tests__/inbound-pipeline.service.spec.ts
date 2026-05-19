@@ -23,6 +23,8 @@ import type { PrismaService } from '../../../integrations/prisma/prisma.service'
 import type { HardTriggerKind } from '../../ai/hard-triggers';
 import { PreFilterService } from '../../ai/pre-filter.service';
 import { DefaultRedactor, RedactionRequiredError, type Redactor } from '../../ai/redactor';
+import { BreathingSpaceService } from '../../cases/breathing-space.service';
+import { S8EvaluationService } from '../../cases/s8-evaluation.service';
 import {
   InboundPipelineService,
   type LowConfidenceReason,
@@ -341,12 +343,15 @@ function makePipeline(
   anthropic: AnthropicClient,
   redactor: Redactor = new DefaultRedactor(),
 ): InboundPipelineService {
+  const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
+  const breathingSpace = new BreathingSpaceService(prisma as unknown as PrismaService, s8);
   return new InboundPipelineService(
     prisma as unknown as PrismaService,
     new Clock(),
     new PreFilterService(),
     anthropic,
     redactor,
+    breathingSpace,
   );
 }
 
@@ -464,6 +469,44 @@ describe('InboundPipelineService — hard-trigger fixtures', () => {
       expect(anthropic.draftReply).not.toHaveBeenCalled();
     });
   }
+});
+
+describe('InboundPipelineService — R7.1.b breathing-space auto-activation', () => {
+  it('inbound-breathing-space.eml flips Case.breathingSpaceActive and emits BREATHING_SPACE_ACTIVATED', async () => {
+    const seed = await seedActiveCaseWithChaseEntries();
+    const eml = loadFixture('inbound-breathing-space.eml');
+    const commId = await seedInboundCommunication({
+      caseId: seed.caseId,
+      subject: eml.subject,
+      bodyText: eml.bodyText,
+      fromAddress: eml.fromAddress,
+    });
+    const anthropic = makeAnthropicSpy();
+    const pipeline = makePipeline(anthropic.client);
+
+    await pipeline.handle(commId);
+
+    const caseRow = await prisma.case.findUniqueOrThrow({ where: { id: seed.caseId } });
+    expect(caseRow.breathingSpaceActive).toBe(true);
+
+    // BREATHING_SPACE_ACTIVATED event with source TENANT_EMAIL_MENTION
+    const activated = await prisma.caseEvent.findFirstOrThrow({
+      where: { caseId: seed.caseId, kind: 'BREATHING_SPACE_ACTIVATED' },
+    });
+    const payload = activated.payloadJson as { source: string };
+    expect(payload.source).toBe('TENANT_EMAIL_MENTION');
+
+    // No duplicate BREATHING_SPACE flag — the hard-trigger handler raised one,
+    // activate() reused it instead of creating a second.
+    const flags = await prisma.escalationFlag.findMany({
+      where: { caseId: seed.caseId, kind: 'BREATHING_SPACE' },
+    });
+    expect(flags).toHaveLength(1);
+
+    // Still zero LLM calls.
+    expect(anthropic.classify).not.toHaveBeenCalled();
+    expect(anthropic.draftReply).not.toHaveBeenCalled();
+  });
 });
 
 describe('InboundPipelineService — routine fixtures classify + draft', () => {

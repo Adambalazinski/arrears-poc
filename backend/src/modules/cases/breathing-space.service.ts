@@ -114,18 +114,31 @@ export class BreathingSpaceService {
         },
       });
 
-      await tx.escalationFlag.create({
-        data: {
+      // Idempotent: the inbound hard-trigger pipeline (R7.1.b) raises a
+      // BREATHING_SPACE flag before calling activate. Don't create a second
+      // one — reuse the open flag and let it represent this activation.
+      const existingFlag = await tx.escalationFlag.findFirst({
+        where: {
           caseId: input.caseId,
           kind: EscalationFlagKind.BREATHING_SPACE,
-          raisedAt: now,
-          raisedReason: `Breathing space activated via ${input.source}`,
-          payloadJson: {
-            source: input.source,
-            note: input.note ?? null,
-          } as Prisma.InputJsonValue,
+          resolvedAt: null,
         },
+        select: { id: true },
       });
+      if (!existingFlag) {
+        await tx.escalationFlag.create({
+          data: {
+            caseId: input.caseId,
+            kind: EscalationFlagKind.BREATHING_SPACE,
+            raisedAt: now,
+            raisedReason: `Breathing space activated via ${input.source}`,
+            payloadJson: {
+              source: input.source,
+              note: input.note ?? null,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
 
       await tx.caseEvent.create({
         data: {

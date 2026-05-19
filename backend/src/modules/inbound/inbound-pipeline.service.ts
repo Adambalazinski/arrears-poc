@@ -31,6 +31,7 @@ import { buildDraftSnapshot } from '../chase/digest/digest.service';
 import type { HardTriggerKind } from '../ai/hard-triggers';
 import { PreFilterService } from '../ai/pre-filter.service';
 import { REDACTOR, RedactionRequiredError, type Redactor } from '../ai/redactor';
+import { BreathingSpaceService } from '../cases/breathing-space.service';
 
 interface PipelineCommunication {
   id: string;
@@ -119,6 +120,7 @@ export class InboundPipelineService {
     private readonly preFilter: PreFilterService,
     @Inject(ANTHROPIC_CLIENT) private readonly anthropic: AnthropicClient,
     @Inject(REDACTOR) private readonly redactor: Redactor,
+    private readonly breathingSpace: BreathingSpaceService,
   ) {}
 
   async handle(communicationId: string): Promise<PipelineOutcome> {
@@ -620,6 +622,27 @@ export class InboundPipelineService {
     this.logger.warn(
       `inbound-pipeline: hard trigger ${trigger} matched on communication ${comm.id} (keyword="${keyword}") — case ${comm.caseId} escalated`,
     );
+
+    // R7.1.b — tenant-mention-via-email path. When the trigger is
+    // BREATHING_SPACE, run the full breathing-space activation cascade
+    // (set the case flag, auto-reject pending tenant drafts, suppress S8,
+    // emit the BREATHING_SPACE_ACTIVATED event). The flag itself was
+    // already raised above; activate() is idempotent against that.
+    if (trigger === EscalationFlagKind.BREATHING_SPACE) {
+      try {
+        await this.breathingSpace.activate({
+          caseId: comm.caseId,
+          source: 'TENANT_EMAIL_MENTION',
+          note: `Inbound message matched keyword "${keyword}"`,
+        });
+      } catch (err) {
+        this.logger.error(
+          `inbound-pipeline: breathing-space auto-activation failed for case ${comm.caseId} — ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
   }
 }
 

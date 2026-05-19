@@ -14,6 +14,8 @@ import type { AnthropicClient } from '../../../integrations/anthropic/anthropic-
 import type { PrismaService } from '../../../integrations/prisma/prisma.service';
 import { PreFilterService } from '../../ai/pre-filter.service';
 import { DefaultRedactor } from '../../ai/redactor';
+import { BreathingSpaceService } from '../../cases/breathing-space.service';
+import { S8EvaluationService } from '../../cases/s8-evaluation.service';
 import { InboundPipelineService } from '../../inbound/inbound-pipeline.service';
 import { SeedFixtureEmailsService } from '../seed-fixture-emails.service';
 
@@ -133,12 +135,15 @@ function makeHappyAnthropic(): {
 }
 
 function makeService(anthropic: AnthropicClient): SeedFixtureEmailsService {
+  const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
+  const breathingSpace = new BreathingSpaceService(prisma as unknown as PrismaService, s8);
   const pipeline = new InboundPipelineService(
     prisma as unknown as PrismaService,
     new Clock(),
     new PreFilterService(),
     anthropic,
     new DefaultRedactor(),
+    breathingSpace,
   );
   return new SeedFixtureEmailsService(
     prisma as unknown as PrismaService,
