@@ -1,9 +1,21 @@
-import { Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { CaseStatus } from '@prisma/client';
+import { z } from 'zod';
+import { ZodBody } from '../../common/zod/zod-validation.pipe';
 import { AuthGuard } from '../auth/auth.guard';
 import { TenancyRefreshService } from '../tenancies/tenancy-refresh.service';
+import { BreathingSpaceService } from './breathing-space.service';
 import { CasesService } from './cases.service';
 import { LwcaInvoicePollJob } from './jobs/lwca-invoice-poll.job';
+
+const ActivateBreathingSpaceSchema = z.object({
+  source: z.enum(['FORMAL_NOTIFICATION', 'TENANT_EMAIL_MENTION']),
+  note: z.string().max(500).optional(),
+});
+
+const DeactivateBreathingSpaceSchema = z.object({
+  note: z.string().max(500).optional(),
+});
 
 @Controller()
 @UseGuards(AuthGuard)
@@ -12,6 +24,7 @@ export class CasesController {
     private readonly cases: CasesService,
     private readonly pollJob: LwcaInvoicePollJob,
     private readonly tenancyRefresh: TenancyRefreshService,
+    private readonly breathingSpace: BreathingSpaceService,
   ) {}
 
   @Get('organisations/:orgId/cases')
@@ -41,6 +54,26 @@ export class CasesController {
   async refresh(@Param('id') id: string) {
     const detail = await this.cases.getDetail(id);
     return this.tenancyRefresh.refreshFromRentancy(detail.organisationId, detail.tenancyId);
+  }
+
+  @Post('cases/:id/breathing-space/activate')
+  @HttpCode(200)
+  activateBreathingSpace(
+    @Param('id') id: string,
+    @Body(new ZodBody(ActivateBreathingSpaceSchema))
+    dto: z.infer<typeof ActivateBreathingSpaceSchema>,
+  ) {
+    return this.breathingSpace.activate({ caseId: id, source: dto.source, note: dto.note });
+  }
+
+  @Post('cases/:id/breathing-space/deactivate')
+  @HttpCode(200)
+  deactivateBreathingSpace(
+    @Param('id') id: string,
+    @Body(new ZodBody(DeactivateBreathingSpaceSchema))
+    dto: z.infer<typeof DeactivateBreathingSpaceSchema>,
+  ) {
+    return this.breathingSpace.deactivate({ caseId: id, note: dto.note });
   }
 }
 
