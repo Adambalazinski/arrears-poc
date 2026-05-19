@@ -56,10 +56,14 @@ export class CognitoService {
         AuthParameters: { REFRESH_TOKEN: refreshToken },
       }),
     );
-    const accessToken = response.AuthenticationResult?.AccessToken;
+    // Lofty's LWCA + Rentancy APIs validate the JWT for custom claims
+    // (custom:userId, custom:organisationId) that Cognito only puts on the
+    // ID token, not the access token. The variable is still named
+    // "accessToken" throughout the codebase for historical reasons.
+    const accessToken = response.AuthenticationResult?.IdToken;
     const expiresIn = response.AuthenticationResult?.ExpiresIn ?? 3600;
     if (!accessToken) {
-      throw new Error('Cognito refresh response missing AccessToken');
+      throw new Error('Cognito refresh response missing IdToken');
     }
     return {
       accessToken,

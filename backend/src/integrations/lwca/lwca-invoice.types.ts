@@ -29,7 +29,7 @@ export type LwcaInvoiceProperty = z.infer<typeof LwcaInvoicePropertySchema>;
 export const LwcaInvoiceSchema = z.object({
   id: z.string(),
   organisationId: z.string(),
-  referenceId: z.string().optional(),
+  referenceId: z.string().nullable().optional(),
   // LWCA returns these as numeric BigIntegers — JSON.parse gives us number.
   // We accept either number or string and coerce to bigint at the mapper.
   grossAmount: z.union([z.number(), z.string()]),
@@ -38,7 +38,9 @@ export const LwcaInvoiceSchema = z.object({
   invoiceDate: z.string(),
   status: LwcaInvoiceStatusSchema,
   paymentCycleType: z.string().nullable().optional(),
-  tenancyId: z.string(),
+  // Stage returns null for unallocated/ad-hoc invoices; the mapper drops
+  // them because the chase pipeline is keyed on tenancies.
+  tenancyId: z.string().nullable(),
   type: z.string().optional(),
   payeeType: z.string().optional(),
   property: LwcaInvoicePropertySchema.optional(),

@@ -102,7 +102,7 @@ function makeStore(initial: {
 describe('CognitoService.refresh', () => {
   it('returns a new access token + expiry from REFRESH_TOKEN_AUTH', async () => {
     sendMock.mockResolvedValueOnce({
-      AuthenticationResult: { AccessToken: 'new-access', ExpiresIn: 3600 },
+      AuthenticationResult: { IdToken: 'new-access', ExpiresIn: 3600 },
     });
     const svc = new CognitoService({} as CredentialStore, passthroughLock());
     const result = await svc.refresh('refresh-token-1');
@@ -115,10 +115,10 @@ describe('CognitoService.refresh', () => {
     expect(cmd.input.AuthParameters).toEqual({ REFRESH_TOKEN: 'refresh-token-1' });
   });
 
-  it('throws when AccessToken is missing from the response', async () => {
+  it('throws when IdToken is missing from the response', async () => {
     sendMock.mockResolvedValueOnce({ AuthenticationResult: {} });
     const svc = new CognitoService({} as CredentialStore, passthroughLock());
-    await expect(svc.refresh('rt')).rejects.toThrow(/missing AccessToken/);
+    await expect(svc.refresh('rt')).rejects.toThrow(/missing IdToken/);
   });
 });
 
@@ -141,7 +141,7 @@ describe('CognitoService.withFreshAccessToken', () => {
 
   it('refreshes when the access token is expiring soon', async () => {
     sendMock.mockResolvedValueOnce({
-      AuthenticationResult: { AccessToken: 'refreshed-access', ExpiresIn: 3600 },
+      AuthenticationResult: { IdToken: 'refreshed-access', ExpiresIn: 3600 },
     });
     const { store, state } = makeStore({
       accessToken: 'cached-access',
@@ -177,7 +177,7 @@ describe('CognitoService.withFreshAccessToken', () => {
     // lock both would hit Cognito; with the lock, the second sees the freshly
     // updated token and skips the SDK call.
     sendMock.mockResolvedValueOnce({
-      AuthenticationResult: { AccessToken: 'refreshed-once', ExpiresIn: 3600 },
+      AuthenticationResult: { IdToken: 'refreshed-once', ExpiresIn: 3600 },
     });
 
     const { store } = makeStore({

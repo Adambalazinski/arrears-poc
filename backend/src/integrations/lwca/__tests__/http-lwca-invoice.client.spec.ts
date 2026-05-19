@@ -69,7 +69,8 @@ describe('HttpLwcaInvoiceClient', () => {
     expect(calls[0]).toContain('/v1/api/invoice?');
     expect(calls[0]).toContain('isArrear=true');
     expect(calls[0]).toContain('statuses=UNPAID%2CPARTIALLY_PAID%2CPARTIALLY_RECONCILED');
-    expect(calls[0]).toContain('type=INBOUND');
+    expect(calls[0]).toContain('type=OUTBOUND');
+    expect(calls[0]).toContain('page=1');
   });
 
   it('listArrears: paginates until totalPages is exhausted', async () => {

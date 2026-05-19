@@ -67,6 +67,9 @@ export class LwcaInvoiceMapper {
       const gross = toBigIntPence(inv.grossAmount);
       if (remain <= 0n) continue;
       if (!inv.dueDate) continue;
+      // Stage returns invoices without a tenancy link (unallocated or
+      // ad-hoc charges). The chase pipeline is keyed on tenancies — skip.
+      if (!inv.tenancyId) continue;
       mapped.push({
         charge: {
           organisationId: inv.organisationId,

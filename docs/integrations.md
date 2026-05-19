@@ -6,7 +6,7 @@ For cross-cutting credential lifecycle (refresh-token mechanics, encryption), se
 
 ## 1. LWCA — Accounting API
 
-Spring Boot monolith. Stage URL: `https://stage.uk.loftyworks.com`. OAuth2/Cognito JWT bearer.
+Spring Boot monolith. Stage URL: `https://loftyworks-accounting.stage.pay.loftyworks.com`. OAuth2/Cognito JWT bearer (the **ID token**, not the access token — see "Authentication" below).
 
 We deliberately do **not** call the `arrears` endpoint LWCA exposes. We derive arrears from the invoice endpoint so the rule for "what counts as arrears" lives entirely in Arrears and is identical across Phase 2 sources.
 
@@ -22,19 +22,21 @@ We deliberately do **not** call the `arrears` endpoint LWCA exposes. We derive a
 
 ```
 GET /v1/api/invoice
-  ?type=INBOUND
+  ?type=OUTBOUND
   &isArrear=true
   &statuses=UNPAID,PARTIALLY_PAID,PARTIALLY_RECONCILED
-  &page=0
+  &page=1
   &size=100
   &sort=due_date,asc
 Headers:
-  Authorization: Bearer <access_token>
+  Authorization: Bearer <id_token>
 ```
 
 `isArrear=true` on LWCA's side is the same condition we'd apply anyway: `remainAmount > 0 AND paymentCycleType != RECURRING`. We send it because it shrinks the page; we still re-verify on our side so a future change in LWCA semantics doesn't silently break our rule.
 
-`type=INBOUND` filters to invoices LWCA raises against tenants (rent invoices). Outbound invoices — bills LWCA pays — are landlord-payable and irrelevant to tenant arrears chasing.
+`type=OUTBOUND` selects invoices the agency raises *outward* to tenants (rent and tenant charges). The naming is the agency's POV: "outbound" = "owed to us". INBOUND = bills the agency receives from landlords/contractors, irrelevant to tenant arrears chasing. (The Lofty stage UI uses the same `type=OUTBOUND` filter for its arrears view, which is how we confirmed the contract.)
+
+Pagination is **1-indexed** on stage — `page=0` returns `400 Validation failed: page: must be greater than or equal to 1`.
 
 Response is the paginated `PagedResponse<InvoiceApiResponse>` defined in `loftyworks-accounting/src/main/java/com/moatable/loftyworks/accounting/invoice/api/response/InvoiceApiResponse.java`. Shape we care about, per item:
 
@@ -96,6 +98,21 @@ POC: option 1, no caching. If perf hurts we add the TTL cache. The "no caching" 
 
 Mapper: `backend/src/integrations/lwca/lwca-invoice.mapper.ts`. Exports `toCanonicalCharge(invoice, orgId)`. Tested with full LWCA fixture in `fixtures/lwca/invoices-list.json`.
 
+### Stage shape divergences (May 2026)
+
+The LWCA stage HTTP response diverges from the canonical envelope the fixture uses. `backend/src/integrations/lwca/lwca-stage-shape.ts` normalises before Zod parsing so a single schema handles both paths.
+
+| Wire field (stage)   | Canonical field          | Notes |
+| -------------------- | ------------------------ | --- |
+| `returnList[]`       | `content[]`              | Page envelope key |
+| `page`               | `number`                 | Same value, different key |
+| `totalItems`         | `totalElements`          | Page envelope key |
+| `tenancy.id`         | `tenancyId` (row-level)  | Top-level `tenancyId` is always null on stage — the real id sits nested under `tenancy: { id, reference, balance }` |
+
+Tenancy-less invoices (where neither `tenancyId` nor `tenancy.id` resolves to a string) are dropped by the mapper: the chase pipeline is keyed on tenancies, so there's nothing actionable to do with an unallocated charge. Stage exposes a fair number of these — they're unallocated/ad-hoc charges from the agency's ledger.
+
+
+
 ### Filtering rule on read
 
 After receiving the response, the mapper applies these on the Arrears side regardless of what LWCA returned:
@@ -127,7 +144,7 @@ Backoff schedule for 429 / 5xx: 1s, 4s, 16s, then give up this tick.
 
 ## 2. Rentancy API
 
-Lambda + DynamoDB. Stage URL: `https://api.stage.uk.loftyworks.com` (**TBC** — confirm with platform team, the serverless config uses API Gateway URLs that vary per deployment). Same Cognito user pool as LWCA (working assumption — `getJiraIssue` and our own probe will confirm).
+Lambda + DynamoDB. Stage URL: `https://rentancy-api.stage.pay.loftyworks.com`. Same Cognito user pool as LWCA (confirmed via probe).
 
 ### Endpoints used
 
@@ -198,6 +215,16 @@ Shape from `rentancy-api/src/v2/contacts/`:
 | `contact.emails[0].email`               | `Contact.primaryEmail`                          |
 | `contact.emails`                        | `Contact.emailsJson` (verbatim)                 |
 | `contact.phones`                        | `Contact.phonesJson` (verbatim)                 |
+
+### Stage shape divergences (May 2026)
+
+Rentancy stage diverges from the canonical schema in two ways. `backend/src/integrations/rentancy/rentancy-stage-shape.ts` normalises before parsing.
+
+| Wire field (stage)                                  | Canonical field        | Notes |
+| --------------------------------------------------- | ---------------------- | --- |
+| `tenancy.tenants[]: { tenantId, primary }`          | `tenants: string[]`    | Stage returns tenant objects; the adapter extracts the `tenantId`. `guarantorIds` / `guarantors` follow the same shape (looks for `id`, `tenantId`, `guarantorId`, `contactId`). |
+| `contact.firstName` / `contact.lastName`            | `fname` / `sname`      | Stage uses camelCase; canonical and the fixture use the shorter form. |
+
 
 Property details come from LWCA's `invoice.property` block, not from Rentancy. Both repos have property concepts; LWCA's is sufficient for our display needs.
 

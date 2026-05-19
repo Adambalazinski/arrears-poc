@@ -7,6 +7,7 @@ import {
 } from './rentancy.client';
 import { RentancyMapper, type RentancyContactUpsert, type RentancyTenancyUpsert } from './rentancy.mapper';
 import { RentancyContactSchema, RentancyTenancySchema } from './rentancy.types';
+import { normaliseStageContact, normaliseStageTenancy } from './rentancy-stage-shape';
 
 @Injectable()
 export class HttpRentancyClient implements RentancyTenancyClient {
@@ -29,7 +30,7 @@ export class HttpRentancyClient implements RentancyTenancyClient {
         token,
         { notFoundKind: 'tenancy', notFoundId: tenancyId },
       );
-      return RentancyMapper.tenancy(RentancyTenancySchema.parse(body));
+      return RentancyMapper.tenancy(RentancyTenancySchema.parse(normaliseStageTenancy(body)));
     });
   }
 
@@ -40,7 +41,7 @@ export class HttpRentancyClient implements RentancyTenancyClient {
         token,
         { notFoundKind: 'contact', notFoundId: contactId },
       );
-      return RentancyMapper.contact(RentancyContactSchema.parse(body));
+      return RentancyMapper.contact(RentancyContactSchema.parse(normaliseStageContact(body)));
     });
   }
 

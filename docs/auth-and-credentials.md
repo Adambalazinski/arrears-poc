@@ -43,6 +43,14 @@ The hard problem: the worker needs to call LWCA + Rentancy as the organisation's
 9. Admin returns to config page, pastes new tokens, repeats from step 3
 ```
 
+### Which token? (ID token, not access token)
+
+Lofty's LWCA + Rentancy APIs validate the **ID token**, not the access token. The custom claims those APIs check (`custom:userId`, `custom:organisationId`) live on the ID token only — accessing a tenancy-linked invoice with the access token returns `400 Bad authentication: cognito:userId is null`.
+
+`CognitoService.refresh()` accordingly stores the `IdToken` from the `RefreshAuth` response as what the codebase calls `accessToken`. The name is a misnomer kept for historical reasons; the variable carries the bearer-shaped token we put on the wire, whatever JWT type that happens to be.
+
+**Open issue:** the upstream's pre-token-generation Lambda only attaches `custom:userId` on initial password auth, not on `REFRESH_TOKEN_AUTH`. The local POC works around this by pinning `accessTokenExpiresAt` so the cached ID token is used until it naturally expires (1 hour) — see `dev tools` in `docs/integrations.md`. Lofty needs to enable the Lambda trigger on refresh flows before unattended polling is viable.
+
 ### `withFreshAccessToken` — the only call path
 
 Every upstream client call goes through this:
