@@ -1,11 +1,10 @@
 import { apiJson, apiFetch } from './api-client';
+import type { components } from './openapi';
 
-export interface Organisation {
-  id: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-}
+// Sourced from the generated OpenAPI types. Regenerate after changing the
+// backend response shape: `pnpm --filter backend openapi:export &&
+// pnpm --filter frontend openapi:generate`.
+export type Organisation = components['schemas']['OrganisationResponseDto'];
 
 export interface OrganisationConfig {
   organisationId: string;

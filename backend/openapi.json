@@ -1,0 +1,438 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "HealthController_check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "MeController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/organisations": {
+      "get": {
+        "operationId": "OrganisationsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganisationResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      },
+      "post": {
+        "operationId": "OrganisationsController_create",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganisationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      }
+    },
+    "/organisations/{id}": {
+      "get": {
+        "operationId": "OrganisationsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganisationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      },
+      "patch": {
+        "operationId": "OrganisationsController_update",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganisationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      }
+    },
+    "/organisations/{id}/config": {
+      "get": {
+        "operationId": "OrganisationsController_getConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      },
+      "patch": {
+        "operationId": "OrganisationsController_updateConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      }
+    },
+    "/organisations/{id}/credentials": {
+      "get": {
+        "operationId": "OrganisationsController_getCredentials",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      },
+      "post": {
+        "operationId": "OrganisationsController_storeCredentials",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      }
+    },
+    "/organisations/{id}/credentials/probe": {
+      "post": {
+        "operationId": "OrganisationsController_probeCredentials",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organisations"
+        ]
+      }
+    },
+    "/organisations/{orgId}/cases": {
+      "get": {
+        "operationId": "CasesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Cases"
+        ]
+      }
+    },
+    "/organisations/{orgId}/sync": {
+      "post": {
+        "operationId": "CasesController_sync",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Cases"
+        ]
+      }
+    },
+    "/cases/{id}": {
+      "get": {
+        "operationId": "CasesController_detail",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Cases"
+        ]
+      }
+    },
+    "/cases/{id}/refresh": {
+      "post": {
+        "operationId": "CasesController_refresh",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Cases"
+        ]
+      }
+    },
+    "/dev/force-sync/{orgId}": {
+      "post": {
+        "operationId": "DevToolsController_forceSync",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "DevTools"
+        ]
+      }
+    },
+    "/dev/fixture-emails": {
+      "get": {
+        "operationId": "DevToolsController_listFixtureEmails",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "DevTools"
+        ]
+      }
+    },
+    "/dev/seed-fixture-emails/{caseId}": {
+      "post": {
+        "operationId": "DevToolsController_seedFixtureEmails",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "DevTools"
+        ]
+      }
+    },
+    "/dev/clock": {
+      "get": {
+        "operationId": "DevToolsController_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "DevTools"
+        ]
+      }
+    },
+    "/dev/advance-clock": {
+      "post": {
+        "operationId": "DevToolsController_advance",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "DevTools"
+        ]
+      }
+    },
+    "/dev/reset-clock": {
+      "post": {
+        "operationId": "DevToolsController_reset",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "DevTools"
+        ]
+      }
+    },
+    "/review-queue": {
+      "get": {
+        "operationId": "ReviewQueueController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ReviewQueue"
+        ]
+      }
+    },
+    "/review-queue/{id}": {
+      "get": {
+        "operationId": "ReviewQueueController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ReviewQueue"
+        ]
+      }
+    },
+    "/review-queue/{id}/approve": {
+      "post": {
+        "operationId": "ReviewQueueController_approve",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ReviewQueue"
+        ]
+      }
+    },
+    "/review-queue/{id}/reject": {
+      "post": {
+        "operationId": "ReviewQueueController_reject",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ReviewQueue"
+        ]
+      }
+    },
+    "/review-queue/{id}/dismiss": {
+      "post": {
+        "operationId": "ReviewQueueController_dismiss",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ReviewQueue"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Arrears POC API",
+    "description": "Internal HTTP API for the Arrears chasing application. Local POC against LWCA stage.",
+    "version": "0.1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "OrganisationResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "demo-org"
+          },
+          "name": {
+            "type": "string",
+            "example": "Demo Lettings Ltd"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "updatedAt"
+        ]
+      }
+    }
+  }
+}

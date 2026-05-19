@@ -55,4 +55,15 @@ With the stack up:
      -d '{"fixture":"inbound-hardship.eml"}'
    ```
 
-For real stage credentials, see [`docs/auth-and-credentials.md`](./docs/auth-and-credentials.md). For demo scenarios, see [`docs/poc-scope.md`](./docs/poc-scope.md).
+For real stage credentials, see [`docs/auth-and-credentials.md`](./docs/auth-and-credentials.md). For demo scenarios, see [`docs/poc-scope.md`](./docs/poc-scope.md). For a stakeholder demo walkthrough, see [`docs/demo-script.md`](./docs/demo-script.md).
+
+## Regenerating the frontend API types
+
+When you change a backend response shape that's annotated with `@ApiOkResponse(...)`:
+
+```bash
+pnpm --filter backend openapi:export      # writes backend/openapi.json
+pnpm --filter frontend openapi:generate   # writes frontend/src/lib/openapi.d.ts
+```
+
+`tsc --noEmit` in the frontend will then surface any callers that need updating. Swagger UI is mounted at http://localhost:3001/api-docs while the backend is running in dev mode. Not every controller is fully annotated yet — endpoints that aren't show up in the spec without typed responses; expand by adding `@ApiOkResponse({ type: ... })` to the controller method.

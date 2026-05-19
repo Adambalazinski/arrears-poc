@@ -32,6 +32,9 @@ async function wipeAll(): Promise<void> {
   await prisma.escalationFlag.deleteMany({
     where: { case: { organisationId: ORG_ID } },
   });
+  await prisma.classificationResult.deleteMany({
+    where: { case: { organisationId: ORG_ID } },
+  });
   await prisma.caseEvent.deleteMany({ where: { case: { organisationId: ORG_ID } } });
   await prisma.charge.deleteMany({ where: { organisationId: ORG_ID } });
   await prisma.case.deleteMany({ where: { organisationId: ORG_ID } });

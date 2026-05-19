@@ -7,6 +7,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { ZodBody } from '../../common/zod/zod-validation.pipe';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -26,7 +27,9 @@ import {
 import { OrganisationConfigService } from './organisation-config.service';
 import { OrganisationCredentialService } from './organisation-credential.service';
 import { OrganisationsService } from './organisations.service';
+import { OrganisationResponseDto } from './response.dto';
 
+@ApiTags('organisations')
 @Controller('organisations')
 @UseGuards(AuthGuard)
 export class OrganisationsController {
@@ -37,21 +40,25 @@ export class OrganisationsController {
   ) {}
 
   @Get()
+  @ApiOkResponse({ type: [OrganisationResponseDto] })
   list() {
     return this.orgs.list();
   }
 
   @Post()
+  @ApiOkResponse({ type: OrganisationResponseDto })
   create(@Body(new ZodBody(CreateOrganisationSchema)) dto: CreateOrganisationDto) {
     return this.orgs.create(dto);
   }
 
   @Get(':id')
+  @ApiOkResponse({ type: OrganisationResponseDto })
   get(@Param('id') id: string) {
     return this.orgs.get(id);
   }
 
   @Patch(':id')
+  @ApiOkResponse({ type: OrganisationResponseDto })
   update(
     @Param('id') id: string,
     @Body(new ZodBody(UpdateOrganisationSchema)) dto: UpdateOrganisationDto,
