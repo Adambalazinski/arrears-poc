@@ -103,10 +103,34 @@ export interface ChargeRowDetail extends ChargeRowSummary {
   lastKnownPaymentCycleType: string | null;
 }
 
+export type EscalationFlagKind =
+  | 'S8_ELIGIBLE'
+  | 'BREATHING_SPACE'
+  | 'HARDSHIP_INDICATED'
+  | 'MENTAL_HEALTH_INDICATED'
+  | 'THIRD_PARTY_INVOLVED'
+  | 'LIABILITY_DISPUTED'
+  | 'DOMESTIC_CIRCUMSTANCES'
+  | 'AI_CONFIDENCE_FAILURE'
+  | 'STALE_BALANCE_60D'
+  | 'REPEATED_SMALL_PAYMENTS';
+
+export interface EscalationFlagRow {
+  id: string;
+  caseId: string;
+  kind: EscalationFlagKind;
+  raisedAt: string;
+  raisedReason: string;
+  resolvedAt: string | null;
+  resolvedReason: string | null;
+  payloadJson: unknown;
+}
+
 export interface CaseRowDetail extends Omit<CaseRowListed, 'charges' | 'tenancy'> {
   tenancy: TenancyRow & { tenancyContacts: TenancyContactRow[] };
   charges: ChargeRowDetail[];
   events: CaseEventRow[];
+  escalationFlags: EscalationFlagRow[];
 }
 
 export const listCases = (orgId: string, status?: CaseStatus) => {

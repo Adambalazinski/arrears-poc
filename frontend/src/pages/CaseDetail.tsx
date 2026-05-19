@@ -13,6 +13,8 @@ import {
   type CaseEventRow,
   type CaseRowDetail,
   type ChargeRowDetail,
+  type EscalationFlagKind,
+  type EscalationFlagRow,
 } from '@/lib/api-cases';
 
 export function CaseDetailPage(): JSX.Element {
@@ -68,6 +70,7 @@ export function CaseDetailPage(): JSX.Element {
 
       <section className="px-6 py-5 max-w-5xl mx-auto space-y-8">
         <SummaryCard c={c} />
+        <EscalationStrip flags={c.escalationFlags} />
         <BreathingSpaceCard caseId={c.id} active={c.breathingSpaceActive} status={c.status} />
         <ChargesTable charges={c.charges} />
         <Timeline events={c.events} />
@@ -205,6 +208,43 @@ function Timeline({ events }: { events: CaseEventRow[] }): JSX.Element {
           ))}
         </ol>
       )}
+    </div>
+  );
+}
+
+const FLAG_LABEL: Record<EscalationFlagKind, string> = {
+  S8_ELIGIBLE: 'Section 8 eligible',
+  BREATHING_SPACE: 'Breathing space',
+  HARDSHIP_INDICATED: 'Hardship indicated',
+  MENTAL_HEALTH_INDICATED: 'Mental-health indicated',
+  THIRD_PARTY_INVOLVED: 'Third party involved',
+  LIABILITY_DISPUTED: 'Liability disputed',
+  DOMESTIC_CIRCUMSTANCES: 'Domestic circumstances',
+  AI_CONFIDENCE_FAILURE: 'AI confidence failure',
+  STALE_BALANCE_60D: 'Stale balance (60d)',
+  REPEATED_SMALL_PAYMENTS: 'Repeated small payments',
+};
+
+function EscalationStrip({ flags }: { flags: EscalationFlagRow[] }): JSX.Element | null {
+  if (flags.length === 0) return null;
+  return (
+    <div className="border border-amber-300 bg-amber-50/40 rounded p-4">
+      <h2 className="text-sm font-medium text-amber-800 mb-2">
+        Active escalations ({flags.length})
+      </h2>
+      <ul className="space-y-1.5">
+        {flags.map((f) => (
+          <li key={f.id} className="text-sm flex items-baseline gap-3">
+            <span className="font-medium text-amber-900 min-w-[200px]">
+              {FLAG_LABEL[f.kind] ?? f.kind}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              raised {new Date(f.raisedAt).toLocaleString('en-GB')}
+            </span>
+            <span className="text-xs text-muted-foreground break-all">{f.raisedReason}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

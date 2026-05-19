@@ -221,6 +221,10 @@ export class CasesService {
         },
         charges: { orderBy: { dueDate: 'asc' } },
         events: { orderBy: { occurredAt: 'asc' }, take: 200 },
+        escalationFlags: {
+          where: { resolvedAt: null },
+          orderBy: { raisedAt: 'asc' },
+        },
       },
     });
     if (!found) throw new NotFoundException(`Case ${caseId} not found`);
