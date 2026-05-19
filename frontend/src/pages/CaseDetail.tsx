@@ -1,11 +1,15 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  activateBreathingSpace,
+  deactivateBreathingSpace,
   formatPence,
   getCase,
   propertyLine,
   refreshCase,
   tenantNameFromDetail,
+  type BreathingSpaceSource,
   type CaseEventRow,
   type CaseRowDetail,
   type ChargeRowDetail,
@@ -64,6 +68,7 @@ export function CaseDetailPage(): JSX.Element {
 
       <section className="px-6 py-5 max-w-5xl mx-auto space-y-8">
         <SummaryCard c={c} />
+        <BreathingSpaceCard caseId={c.id} active={c.breathingSpaceActive} status={c.status} />
         <ChargesTable charges={c.charges} />
         <Timeline events={c.events} />
         <CommunicationsPlaceholder />
@@ -199,6 +204,165 @@ function Timeline({ events }: { events: CaseEventRow[] }): JSX.Element {
             </li>
           ))}
         </ol>
+      )}
+    </div>
+  );
+}
+
+function BreathingSpaceCard({
+  caseId,
+  active,
+  status,
+}: {
+  caseId: string;
+  active: boolean;
+  status: 'ACTIVE' | 'CLOSED';
+}): JSX.Element {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [source, setSource] = useState<BreathingSpaceSource>('FORMAL_NOTIFICATION');
+  const [note, setNote] = useState('');
+
+  const reset = () => {
+    setOpen(false);
+    setNote('');
+    setSource('FORMAL_NOTIFICATION');
+  };
+
+  const activate = useMutation({
+    mutationFn: () =>
+      activateBreathingSpace(caseId, {
+        source,
+        note: note.trim() || undefined,
+      }),
+    onSuccess: async () => {
+      reset();
+      await qc.invalidateQueries({ queryKey: ['case', caseId] });
+    },
+  });
+
+  const deactivate = useMutation({
+    mutationFn: () => deactivateBreathingSpace(caseId, { note: note.trim() || undefined }),
+    onSuccess: async () => {
+      reset();
+      await qc.invalidateQueries({ queryKey: ['case', caseId] });
+    },
+  });
+
+  const disabled = status !== 'ACTIVE';
+  const pending = activate.isPending || deactivate.isPending;
+  const error =
+    activate.error instanceof Error
+      ? activate.error.message
+      : deactivate.error instanceof Error
+        ? deactivate.error.message
+        : null;
+
+  return (
+    <div
+      className={`rounded border ${
+        active ? 'border-amber-300 bg-amber-50/30' : 'border-border'
+      } p-4`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground">Breathing space</h2>
+          <p className="text-sm mt-1">
+            {active ? (
+              <>
+                <span className="font-semibold text-amber-700">Active</span>
+                <span className="text-muted-foreground">
+                  {' '}
+                  — chase events suspended, pending tenant drafts auto-rejected, S8 flag
+                  suppressed (R7.2).
+                </span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">
+                Not active. Activate when the tenant has invoked Debt Respite or a
+                formal notification has been received.
+              </span>
+            )}
+          </p>
+        </div>
+        {!open && (
+          <button
+            type="button"
+            className="rounded bg-primary text-primary-foreground px-3 py-1.5 text-sm disabled:opacity-50"
+            disabled={disabled || pending}
+            onClick={() => setOpen(true)}
+          >
+            {active ? 'Deactivate…' : 'Activate…'}
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div className="mt-4 border-t border-border pt-4 space-y-3">
+          {!active && (
+            <label className="block text-sm">
+              <span className="text-muted-foreground block mb-1">Source</span>
+              <select
+                value={source}
+                onChange={(e) => setSource(e.target.value as BreathingSpaceSource)}
+                className="rounded border border-border px-2 py-1 text-sm bg-background"
+              >
+                <option value="FORMAL_NOTIFICATION">
+                  Formal notification (Debt Respite letter)
+                </option>
+                <option value="TENANT_EMAIL_MENTION">Tenant mention via email</option>
+              </select>
+            </label>
+          )}
+          <label className="block text-sm">
+            <span className="text-muted-foreground block mb-1">
+              Note (optional, max 500 chars)
+            </span>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value.slice(0, 500))}
+              rows={2}
+              className="w-full rounded border border-border px-2 py-1 text-sm bg-background"
+              placeholder={
+                active
+                  ? 'e.g. moratorium expired'
+                  : 'e.g. Debt Respite notification received 19 May'
+              }
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            {active
+              ? 'Deactivating resumes chase from the next tick. Past skipped entries stay skipped (R7.3).'
+              : 'Activating cancels pending tenant drafts and clears the S8 flag (R7.2 + R6.6).'}
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={`rounded ${
+                active
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-primary hover:bg-primary/90'
+              } text-primary-foreground px-3 py-1.5 text-sm disabled:opacity-50`}
+              disabled={pending}
+              onClick={() => (active ? deactivate.mutate() : activate.mutate())}
+            >
+              {pending
+                ? 'Working…'
+                : active
+                  ? 'Confirm deactivate'
+                  : 'Confirm activate'}
+            </button>
+            <button
+              type="button"
+              className="rounded border border-border px-3 py-1.5 text-sm"
+              disabled={pending}
+              onClick={reset}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -129,6 +129,39 @@ export const refreshCase = (id: string) =>
     method: 'POST',
   });
 
+export type BreathingSpaceSource = 'FORMAL_NOTIFICATION' | 'TENANT_EMAIL_MENTION';
+
+export interface BreathingSpaceToggleResult {
+  caseId: string;
+  breathingSpaceActive: boolean;
+  changed: boolean;
+  chaseEntriesSkipped: number;
+  draftsAutoRejected: number;
+}
+
+export const activateBreathingSpace = (
+  caseId: string,
+  input: { source: BreathingSpaceSource; note?: string },
+) =>
+  apiJson<BreathingSpaceToggleResult>(
+    `/api/cases/${encodeURIComponent(caseId)}/breathing-space/activate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  );
+
+export const deactivateBreathingSpace = (caseId: string, input: { note?: string } = {}) =>
+  apiJson<BreathingSpaceToggleResult>(
+    `/api/cases/${encodeURIComponent(caseId)}/breathing-space/deactivate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  );
+
 /** Pull tenant display name from the linked Rentancy contacts on a case detail. */
 export function tenantNameFromDetail(detail: CaseRowDetail): string {
   const tenant = detail.tenancy.tenancyContacts.find((tc) => tc.role === 'TENANT')?.contact;
