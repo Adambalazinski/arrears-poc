@@ -66,6 +66,29 @@ describe('normaliseStageTenancy', () => {
     expect(parsed.tenants).toEqual(['c-aaa']);
     expect(parsed.guarantorIds).toEqual(['g-1']);
   });
+
+  it('lifts stage `rent` into canonical `agreedPrice`', () => {
+    const stage = {
+      id: 't1',
+      tenancyPropertyId: 'p1',
+      status: 'ACTIVE',
+      rent: 120000,
+    };
+    const out = normaliseStageTenancy(stage) as Record<string, unknown>;
+    expect(out.agreedPrice).toBe(120000);
+  });
+
+  it('does not overwrite an existing agreedPrice', () => {
+    const fixture = {
+      id: 't1',
+      tenancyPropertyId: 'p1',
+      status: 'ACTIVE',
+      agreedPrice: 99999,
+      rent: 11111,
+    };
+    const out = normaliseStageTenancy(fixture) as Record<string, unknown>;
+    expect(out.agreedPrice).toBe(99999);
+  });
 });
 
 describe('normaliseStageContact', () => {

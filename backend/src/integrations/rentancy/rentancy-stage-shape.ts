@@ -31,6 +31,10 @@ export function normaliseStageTenancy(body: unknown): unknown {
         .filter((x): x is string => typeof x === 'string');
     }
   }
+  // Stage uses `rent` for the rent amount; canonical/fixture use `agreedPrice`.
+  if (next.agreedPrice == null && (typeof next.rent === 'number' || typeof next.rent === 'string')) {
+    next.agreedPrice = next.rent;
+  }
   return next;
 }
 
