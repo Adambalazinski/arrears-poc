@@ -37,19 +37,24 @@ Defaults run in **fixtures mode** (`INTEGRATION_MODE=fixtures`). No real LWCA / 
 
 ## First demo run
 
-With the stack up:
+With the stack up, set the org id you'll be working against:
 
-1. Open http://localhost:5173 and pick the seeded `demo-org` ("Demo Lettings Ltd").
-2. Add upstream credentials via the org page — in fixtures mode any non-empty string is accepted.
+```bash
+export ORG_ID=demo-org             # fixtures mode (matches the seeded fixture data)
+# export ORG_ID=<your-workspace>    # stage mode — any Rentancy workspace id you have access to
+```
+
+Then:
+
+1. Open http://localhost:5173 and pick the org. In fixtures mode it's the seeded `Demo Lettings Ltd`; in stage mode, create it with `id = $ORG_ID` if it doesn't exist.
+2. Add upstream credentials via the org page. Fixtures: any non-empty string is accepted. Stage: paste your Cognito **ID token** (the JWT with the `custom:userId` claim — not the access token).
 3. Trigger a poll:
    ```bash
-   curl -X POST http://localhost:3001/dev/force-sync/demo-org
+   curl -X POST http://localhost:3001/dev/force-sync/$ORG_ID
    ```
 4. Cases appear under the org. Seed inbound emails onto a case to populate the review queue:
    ```bash
-   # Seed all fixture emails
-   curl -X POST http://localhost:3001/dev/seed-fixture-emails/<caseId>
-   # ...or just one
+   # Seed one fixture
    curl -X POST http://localhost:3001/dev/seed-fixture-emails/<caseId> \
      -H 'Content-Type: application/json' \
      -d '{"fixture":"inbound-hardship.eml"}'
