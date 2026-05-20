@@ -90,11 +90,15 @@ model OrganisationConfig {
   aiConfidenceThreshold Decimal @default(0.75) @db.Decimal(3, 2)
 
   // Templates (Mustache-ish bodies, see docs/business-rules.md)
-  templateWd3Tenant     String
-  templateWd5Tenant     String
-  templateWd8Tenant     String
-  templateWd14Tenant    String
-  templateBrokenPromise String
+  templateWd3Tenant       String
+  templateWd5Tenant       String
+  templateWd8Tenant       String
+  templateWd14Tenant      String
+  templateWd3Guarantor    String @default("")
+  templateWd5Guarantor    String @default("")
+  templateWd8Guarantor    String @default("")
+  templateWd14Guarantor   String @default("")
+  templateBrokenPromise   String
 
   // Hard-trigger keyword overrides (JSON array, falls back to defaults)
   hardTriggerOverrides Json?
@@ -303,13 +307,14 @@ model ChaseScheduleEntry {
   charge   Charge @relation(fields: [chargeId], references: [id])
 
   stage         ChaseStage // WD3_SENT / WD5_SENT / WD8_SENT / WD14_NOTIFIED
+  recipientRole RecipientRole @default(TENANT) // TENANT track or GUARANTOR parallel track
   dueAt         DateTime // computed in UTC from dueDate + working-day offset, anchored at 09:00 Europe/London
   firedAt       DateTime?
   skippedReason ChaseSkippedReason? // when fired-but-not-acted (e.g. breathing space, already resolved)
 
   createdAt DateTime @default(now())
 
-  @@unique([chargeId, stage]) // idempotency: re-running scheduler can't double-create
+  @@unique([chargeId, stage, recipientRole]) // idempotency: re-running scheduler can't double-create — one entry per (charge, stage, recipient)
   @@index([dueAt, firedAt])
   @@map("chase_schedule_entry")
 }

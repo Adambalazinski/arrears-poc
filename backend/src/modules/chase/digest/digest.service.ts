@@ -43,17 +43,34 @@ interface CaseWithContext extends Case {
 
 const ARREARS_STATUSES = new Set(['UNPAID', 'PARTIALLY_PAID', 'PARTIALLY_RECONCILED']);
 
-const TEMPLATE_BY_STAGE: Record<ChaseStage, keyof OrganisationConfig | null> = {
-  AWAITING_WD3: 'templateWd3Tenant',
-  AWAITING_WD5: 'templateWd5Tenant',
-  AWAITING_WD8: 'templateWd8Tenant',
-  AWAITING_WD14: 'templateWd14Tenant',
-  NOT_DUE: null,
-  WD3_SENT: null,
-  WD5_SENT: null,
-  WD8_SENT: null,
-  WD14_NOTIFIED: null,
-  RESOLVED: null,
+const TEMPLATE_BY_STAGE_AND_ROLE: Record<
+  RecipientRole,
+  Record<ChaseStage, keyof OrganisationConfig | null>
+> = {
+  TENANT: {
+    AWAITING_WD3: 'templateWd3Tenant',
+    AWAITING_WD5: 'templateWd5Tenant',
+    AWAITING_WD8: 'templateWd8Tenant',
+    AWAITING_WD14: 'templateWd14Tenant',
+    NOT_DUE: null,
+    WD3_SENT: null,
+    WD5_SENT: null,
+    WD8_SENT: null,
+    WD14_NOTIFIED: null,
+    RESOLVED: null,
+  },
+  GUARANTOR: {
+    AWAITING_WD3: 'templateWd3Guarantor',
+    AWAITING_WD5: 'templateWd5Guarantor',
+    AWAITING_WD8: 'templateWd8Guarantor',
+    AWAITING_WD14: 'templateWd14Guarantor',
+    NOT_DUE: null,
+    WD3_SENT: null,
+    WD5_SENT: null,
+    WD8_SENT: null,
+    WD14_NOTIFIED: null,
+    RESOLVED: null,
+  },
 };
 
 const SUBJECT_BY_STAGE: Record<ChaseStage, string> = {
@@ -150,50 +167,87 @@ export class DigestService {
       return { digestCreated: false, entriesFired: 0 };
     }
 
+    const overdueCharges = c.charges.filter((ch) => ARREARS_STATUSES.has(ch.lastKnownStatus));
+    if (overdueCharges.length === 0) {
+      const anyFiring = c.chaseScheduleEntries.some(
+        (e) => e.firedAt == null && e.skippedReason == null && e.dueAt <= now,
+      );
+      if (anyFiring) {
+        this.logger.warn(
+          `digest: case ${c.id} firing entries exist but no overdue charges on case`,
+        );
+      }
+      return { digestCreated: false, entriesFired: 0 };
+    }
+
+    let digestsCreated = 0;
+    let entriesFiredTotal = 0;
+    for (const role of [RecipientRole.TENANT, RecipientRole.GUARANTOR]) {
+      const r = await this.processBucket(c, role, overdueCharges, config, now);
+      if (r.digestCreated) digestsCreated++;
+      entriesFiredTotal += r.entriesFired;
+    }
+    return { digestCreated: digestsCreated > 0, entriesFired: entriesFiredTotal };
+  }
+
+  private async processBucket(
+    c: CaseWithContext,
+    role: RecipientRole,
+    overdueCharges: Charge[],
+    config: OrganisationConfig,
+    now: Date,
+  ): Promise<{ digestCreated: boolean; entriesFired: number }> {
     const firing = c.chaseScheduleEntries.filter(
-      (e) => e.firedAt == null && e.skippedReason == null && e.dueAt <= now,
+      (e) =>
+        e.recipientRole === role &&
+        e.firedAt == null &&
+        e.skippedReason == null &&
+        e.dueAt <= now,
     );
     if (firing.length === 0) return { digestCreated: false, entriesFired: 0 };
 
     const consolidatedStage = mostSevereStage(firing.map((e) => e.stage));
-    const templateKey = TEMPLATE_BY_STAGE[consolidatedStage];
+    const templateKey = TEMPLATE_BY_STAGE_AND_ROLE[role][consolidatedStage];
     if (!templateKey) {
-      this.logger.warn(`digest: case ${c.id} consolidated stage ${consolidatedStage} has no template`);
+      this.logger.warn(
+        `digest: case ${c.id} role=${role} consolidated stage ${consolidatedStage} has no template`,
+      );
       return { digestCreated: false, entriesFired: 0 };
     }
     const templateBody = (config as unknown as Record<string, unknown>)[templateKey] as string;
-
-    const overdueCharges = c.charges.filter((ch) => ARREARS_STATUSES.has(ch.lastKnownStatus));
-    if (overdueCharges.length === 0) {
+    if (!templateBody || templateBody.trim() === '') {
       this.logger.warn(
-        `digest: case ${c.id} firing entries exist but no overdue charges on case`,
+        `digest: case ${c.id} role=${role} template ${templateKey} is empty; skipping draft`,
       );
       return { digestCreated: false, entriesFired: 0 };
     }
 
-    const tenantContact = c.tenancy.tenancyContacts.find((tc) => tc.role === 'TENANT')?.contact;
-    if (!tenantContact?.primaryEmail) {
-      this.logger.warn(`digest: case ${c.id} has no tenant primary email; skipping draft`);
+    const recipientContact = c.tenancy.tenancyContacts.find((tc) => tc.role === role)?.contact;
+    if (!recipientContact?.primaryEmail) {
+      this.logger.warn(
+        `digest: case ${c.id} role=${role} has no primary email; skipping draft`,
+      );
       return { digestCreated: false, entriesFired: 0 };
     }
 
-    const context = buildContext(c, overdueCharges, tenantContact);
+    const context = buildContext(c, overdueCharges, role, recipientContact);
     let body: string;
     try {
       body = renderTemplate(templateBody, context);
     } catch (err) {
       this.logger.error(
-        `digest: case ${c.id} template render failed — ${err instanceof Error ? err.message : err}`,
+        `digest: case ${c.id} role=${role} template render failed — ${
+          err instanceof Error ? err.message : err
+        }`,
       );
       throw err;
     }
 
     const subject = SUBJECT_BY_STAGE[consolidatedStage];
     const priority = pickPriority(firing, c.s8Eligible);
-
     const snapshot = buildDraftSnapshot(overdueCharges);
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       const comm = await tx.communication.create({
         data: {
           caseId: c.id,
@@ -202,8 +256,8 @@ export class DigestService {
           channel: CommunicationChannel.EMAIL,
           status: CommunicationStatus.AWAITING_APPROVAL,
           consolidatedStage,
-          recipientRole: RecipientRole.TENANT,
-          toAddress: tenantContact.primaryEmail,
+          recipientRole: role,
+          toAddress: recipientContact.primaryEmail,
           subject,
           bodyMarkdown: body,
           draftedByAi: false,
@@ -236,6 +290,7 @@ export class DigestService {
               chaseScheduleEntryId: e.id,
               chargeId: e.chargeId,
               stage: e.stage,
+              recipientRole: role,
               communicationId: comm.id,
             },
             occurredAt: now,
@@ -246,6 +301,7 @@ export class DigestService {
             payloadJson: {
               communicationId: comm.id,
               consolidatedStage,
+              recipientRole: role,
               priority,
               chargeIds: overdueCharges.map((ch) => ch.id),
               entryIds: firing.map((e) => e.id),
@@ -254,10 +310,8 @@ export class DigestService {
           },
         ],
       });
-
-      return { comm };
     });
-    void result;
+
     return { digestCreated: true, entriesFired: firing.length };
   }
 }
@@ -299,7 +353,8 @@ function pickPriority(
 function buildContext(
   c: CaseWithContext,
   overdueCharges: Charge[],
-  tenantContact: Contact,
+  role: RecipientRole,
+  recipientContact: Contact,
 ): TemplateContext {
   const balancePence = overdueCharges.reduce(
     (acc, ch) => acc + ch.lastKnownRemainAmountPence,
@@ -324,11 +379,35 @@ function buildContext(
     chargeLines[0]!,
   );
 
+  // For tenant drafts the addressee is the tenant. For guarantor drafts
+  // we still pass the tenant block (in case a template mixes "the tenant
+  // <X> has fallen behind") and put the guarantor in the guarantor block.
+  const tenantContact = c.tenancy.tenancyContacts.find((tc) => tc.role === 'TENANT')?.contact;
+  const guarantorContact = c.tenancy.tenancyContacts.find((tc) => tc.role === 'GUARANTOR')?.contact;
+  const tenantBlock =
+    role === RecipientRole.TENANT
+      ? {
+          firstName: recipientContact.firstName ?? '',
+          lastName: recipientContact.lastName ?? '',
+        }
+      : {
+          firstName: tenantContact?.firstName ?? '',
+          lastName: tenantContact?.lastName ?? '',
+        };
+  const guarantorBlock =
+    role === RecipientRole.GUARANTOR
+      ? {
+          firstName: recipientContact.firstName ?? '',
+          lastName: recipientContact.lastName ?? '',
+        }
+      : {
+          firstName: guarantorContact?.firstName ?? '',
+          lastName: guarantorContact?.lastName ?? '',
+        };
+
   return {
-    tenant: {
-      firstName: tenantContact.firstName ?? '',
-      lastName: tenantContact.lastName ?? '',
-    },
+    tenant: tenantBlock,
+    guarantor: guarantorBlock,
     property: {
       address: propertyAddress,
       name: c.tenancy.propertyName ?? '',

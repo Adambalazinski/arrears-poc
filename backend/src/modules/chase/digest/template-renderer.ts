@@ -32,6 +32,11 @@ export interface AgencyContext {
 
 export interface TemplateContext {
   tenant: TenantContext;
+  /** Populated when a guarantor exists on the tenancy. Empty strings
+   * otherwise — guarantor-flavoured templates only fire when the chase
+   * tick emits a GUARANTOR-track entry, which requires a guarantor with
+   * a primary email. */
+  guarantor: TenantContext;
   property: PropertyContext;
   case: CaseContext;
   charges: ChargeLineContext[];

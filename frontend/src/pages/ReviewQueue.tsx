@@ -100,6 +100,7 @@ export function ReviewQueuePage(): JSX.Element {
                   <div className="flex items-center justify-between text-xs gap-2">
                     <PriorityBadge priority={it.priority} />
                     <div className="flex items-center gap-1.5">
+                      {it.communication?.recipientRole === 'GUARANTOR' && <GuarantorChip />}
                       {it.hasAiRationale && <AiChip />}
                       <KindChip kind={it.kind} />
                     </div>
@@ -156,6 +157,17 @@ function AiChip(): JSX.Element {
       className="inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-300"
     >
       AI
+    </span>
+  );
+}
+
+function GuarantorChip(): JSX.Element {
+  return (
+    <span
+      title="Guarantor-track draft"
+      className="inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-500/20 text-amber-800 dark:text-amber-300"
+    >
+      GUARANTOR
     </span>
   );
 }
@@ -218,6 +230,7 @@ function DetailHeader({ it }: { it: ReviewQueueItemDetail }): JSX.Element {
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-lg font-semibold">{comm?.subject ?? '(no subject)'}</h2>
         <div className="flex items-center gap-2">
+          {it.communication?.recipientRole === 'GUARANTOR' && <GuarantorChip />}
           {it.hasAiRationale && <AiChip />}
           <KindChip kind={it.kind} />
           <PriorityBadge priority={it.priority} />

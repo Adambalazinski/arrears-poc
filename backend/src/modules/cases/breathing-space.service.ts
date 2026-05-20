@@ -87,9 +87,13 @@ export class BreathingSpaceService {
         data: { breathingSpaceActive: true },
       });
 
+      // Tenant track only — guarantor cadence keeps firing during
+      // breathing space (the tenant's Debt Respite moratorium doesn't
+      // cover the guarantor; product choice).
       const skipped = await tx.chaseScheduleEntry.updateMany({
         where: {
           caseId: input.caseId,
+          recipientRole: 'TENANT',
           firedAt: null,
           skippedReason: null,
         },
@@ -103,6 +107,7 @@ export class BreathingSpaceService {
         where: {
           caseId: input.caseId,
           direction: 'OUTBOUND',
+          recipientRole: 'TENANT',
           status: {
             in: [CommunicationStatus.AWAITING_APPROVAL, CommunicationStatus.APPROVED],
           },

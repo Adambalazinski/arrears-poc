@@ -113,28 +113,37 @@ async function createCase(opts: {
   return created.id;
 }
 
-async function createPendingChaseEntry(caseId: string): Promise<string> {
+async function createPendingChaseEntry(
+  caseId: string,
+  recipientRole: 'TENANT' | 'GUARANTOR' = 'TENANT',
+): Promise<string> {
   const charge = await prisma.charge.findFirstOrThrow({ where: { caseId } });
   const e = await prisma.chaseScheduleEntry.create({
     data: {
       caseId,
       chargeId: charge.id,
-      stage: 'AWAITING_WD3',
+      stage: recipientRole === 'TENANT' ? 'AWAITING_WD3' : 'AWAITING_WD5',
+      recipientRole,
       dueAt: new Date(),
     },
   });
   return e.id;
 }
 
-async function createPendingDraft(caseId: string, status: 'AWAITING_APPROVAL' | 'APPROVED') {
+async function createPendingDraft(
+  caseId: string,
+  status: 'AWAITING_APPROVAL' | 'APPROVED',
+  recipientRole: 'TENANT' | 'GUARANTOR' = 'TENANT',
+) {
   return prisma.communication.create({
     data: {
       organisationId: ORG_ID,
       caseId,
       direction: 'OUTBOUND',
       channel: 'EMAIL',
-      recipientRole: 'TENANT',
-      toAddress: 't@example.com',
+      recipientRole,
+      toAddress:
+        recipientRole === 'TENANT' ? 'tenant@example.com' : 'guarantor@example.com',
       subject: 'Reminder',
       bodyMarkdown: 'Hello',
       status,
@@ -213,6 +222,29 @@ describe('BreathingSpaceService', () => {
       expect(updatedA.status).toBe('AUTO_REJECTED');
       expect(updatedA.rejectionReason).toBe('breathing space active');
       expect(updatedB.status).toBe('AUTO_REJECTED');
+    });
+
+    it('leaves GUARANTOR-track entries and drafts alive (product choice)', async () => {
+      const caseId = await createCase({});
+      const tenantEntry = await createPendingChaseEntry(caseId, 'TENANT');
+      const guarantorEntry = await createPendingChaseEntry(caseId, 'GUARANTOR');
+      const tenantDraft = await createPendingDraft(caseId, 'AWAITING_APPROVAL', 'TENANT');
+      const guarantorDraft = await createPendingDraft(caseId, 'AWAITING_APPROVAL', 'GUARANTOR');
+
+      const r = await makeService().activate({ caseId, source: 'FORMAL_NOTIFICATION' });
+      expect(r.chaseEntriesSkipped).toBe(1); // tenant only
+      expect(r.draftsAutoRejected).toBe(1); // tenant only
+
+      const t = await prisma.chaseScheduleEntry.findUniqueOrThrow({ where: { id: tenantEntry } });
+      expect(t.skippedReason).toBe('BREATHING_SPACE_ACTIVE');
+      const g = await prisma.chaseScheduleEntry.findUniqueOrThrow({ where: { id: guarantorEntry } });
+      expect(g.skippedReason).toBeNull();
+      expect(g.firedAt).toBeNull();
+
+      const td = await prisma.communication.findUniqueOrThrow({ where: { id: tenantDraft.id } });
+      expect(td.status).toBe('AUTO_REJECTED');
+      const gd = await prisma.communication.findUniqueOrThrow({ where: { id: guarantorDraft.id } });
+      expect(gd.status).toBe('AWAITING_APPROVAL');
     });
 
     it('does not touch already-SENT communications', async () => {

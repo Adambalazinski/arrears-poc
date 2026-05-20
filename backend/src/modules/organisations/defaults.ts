@@ -64,6 +64,62 @@ The most overdue charge ({{mostOverdueCharge.referenceId}}) is now {{mostOverdue
 Yours sincerely,
 {{agency.name}}`;
 
+const TEMPLATE_WD3_GUARANTOR = `Dear {{guarantor.firstName}},
+
+You are listed as the guarantor for the tenancy at {{property.address}}. We're contacting you because {{case.balanceFormatted}} is currently outstanding on the rent.
+
+Outstanding charges ({{case.chargeCount}}):
+{{#charges}}
+- {{referenceId}}: {{remainAmountFormatted}} (due {{dueDateFormatted}}, {{workingDaysOverdue}} working days overdue)
+{{/charges}}
+
+We have written to the tenant separately. Please contact {{agency.replyEmail}} if you would like to discuss the position.
+
+Kind regards,
+{{agency.name}}`;
+
+const TEMPLATE_WD5_GUARANTOR = `Dear {{guarantor.firstName}},
+
+As guarantor for the tenancy at {{property.address}}, we are writing to let you know that {{case.balanceFormatted}} remains overdue.
+
+Outstanding charges:
+{{#charges}}
+- {{referenceId}}: {{remainAmountFormatted}} (due {{dueDateFormatted}}, {{workingDaysOverdue}} working days overdue)
+{{/charges}}
+
+Please contact {{agency.replyEmail}} if you would like to discuss the position.
+
+Kind regards,
+{{agency.name}}`;
+
+const TEMPLATE_WD8_GUARANTOR = `Dear {{guarantor.firstName}} {{guarantor.lastName}},
+
+As guarantor for the tenancy at {{property.address}}, we are formally notifying you that {{case.balanceFormatted}} has been overdue for 8 working days.
+
+Outstanding charges:
+{{#charges}}
+- {{referenceId}}: {{remainAmountFormatted}} (due {{dueDateFormatted}}, {{workingDaysOverdue}} working days overdue)
+{{/charges}}
+
+Under the terms of the guarantor agreement, the balance may be sought from you if the tenant does not clear it. Please contact {{agency.replyEmail}} as a matter of urgency.
+
+Yours sincerely,
+{{agency.name}}`;
+
+const TEMPLATE_WD14_GUARANTOR = `Dear {{guarantor.firstName}} {{guarantor.lastName}},
+
+Despite previous correspondence to both you and the tenant, the outstanding balance of {{case.balanceFormatted}} on the tenancy at {{property.address}} remains unpaid. This matter has now been escalated.
+
+Outstanding charges:
+{{#charges}}
+- {{referenceId}}: {{remainAmountFormatted}} (due {{dueDateFormatted}}, {{workingDaysOverdue}} working days overdue)
+{{/charges}}
+
+Please contact {{agency.replyEmail}} immediately. Failure to engage may result in formal recovery action against the guarantor.
+
+Yours sincerely,
+{{agency.name}}`;
+
 const TEMPLATE_BROKEN_PROMISE = `Dear {{tenant.firstName}},
 
 You previously agreed to pay {{case.balanceFormatted}} on your tenancy at {{property.address}}, but the expected payment has not arrived. Please contact {{agency.replyEmail}} to discuss next steps.
@@ -96,6 +152,10 @@ export const DEFAULT_ORG_CONFIG: Omit<
   templateWd5Tenant: TEMPLATE_WD5,
   templateWd8Tenant: TEMPLATE_WD8,
   templateWd14Tenant: TEMPLATE_WD14,
+  templateWd3Guarantor: TEMPLATE_WD3_GUARANTOR,
+  templateWd5Guarantor: TEMPLATE_WD5_GUARANTOR,
+  templateWd8Guarantor: TEMPLATE_WD8_GUARANTOR,
+  templateWd14Guarantor: TEMPLATE_WD14_GUARANTOR,
   templateBrokenPromise: TEMPLATE_BROKEN_PROMISE,
   hardTriggerOverrides: Prisma.JsonNull,
 };

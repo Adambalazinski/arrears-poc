@@ -20,6 +20,7 @@ export interface ReviewQueueListItem {
   communication: {
     id: string;
     direction: CommunicationDirection;
+    recipientRole: 'TENANT' | 'GUARANTOR' | null;
     subject: string | null;
     consolidatedStage: string | null;
     toAddress: string | null;

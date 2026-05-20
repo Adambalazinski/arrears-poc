@@ -6,6 +6,7 @@ import {
   ChaseStage,
   type OrganisationConfig,
   type Prisma,
+  RecipientRole,
 } from '@prisma/client';
 import { Clock } from '../../common/clock/clock.service';
 import { WorkingDayService } from '../../common/working-day/working-day.service';
@@ -76,9 +77,19 @@ export class ChaseTickService {
             breathingSpaceActive: true,
             organisationId: true,
             organisation: { select: { config: true } },
+            tenancy: {
+              select: {
+                tenancyContacts: {
+                  where: { role: 'GUARANTOR' },
+                  select: { contact: { select: { primaryEmail: true } } },
+                },
+              },
+            },
           },
         },
-        chaseScheduleEntries: { select: { stage: true, firedAt: true, skippedReason: true } },
+        chaseScheduleEntries: {
+          select: { stage: true, recipientRole: true, firedAt: true, skippedReason: true },
+        },
       },
     });
 
@@ -98,16 +109,37 @@ export class ChaseTickService {
       const wd = this.workingDay.workingDaysOverdue(c.dueDate, tickNow);
       const thresholds = thresholdsFromConfig(config as OrganisationConfig);
       const crossed = stagesCrossed(wd, thresholds);
-      const existingByStage = new Map(c.chaseScheduleEntries.map((e) => [e.stage, e]));
+      const existingByKey = new Map(
+        c.chaseScheduleEntries.map((e) => [`${e.stage}|${e.recipientRole}`, e]),
+      );
       const breathingSpace = c.case.breathingSpaceActive;
 
+      // Whether to also emit a GUARANTOR-track entry for this charge. Only
+      // create one if the tenancy has at least one guarantor with a
+      // primary email — otherwise digest would fail to dispatch anyway.
+      const hasGuarantorEmail = c.case.tenancy.tenancyContacts.some(
+        (tc) => tc.contact.primaryEmail != null && tc.contact.primaryEmail.trim() !== '',
+      );
+
       // Create entries for any newly-crossed stage that doesn't already
-      // have a row (unique (chargeId, stage) constraint also guards this).
+      // have a row (unique (chargeId, stage, recipientRole) constraint
+      // also guards this).
       for (const stage of crossed) {
-        if (existingByStage.has(stage)) continue;
-        await this.createEntry(c.caseId, c.id, stage, dueAt, breathingSpace);
-        if (breathingSpace) entriesSkipped++;
-        else entriesCreated++;
+        if (!existingByKey.has(`${stage}|${RecipientRole.TENANT}`)) {
+          // Tenant track is suspended during breathing space (R7.2).
+          await this.createEntry(c.caseId, c.id, stage, RecipientRole.TENANT, dueAt, breathingSpace);
+          if (breathingSpace) entriesSkipped++;
+          else entriesCreated++;
+        }
+        // Guarantor track keeps firing even during breathing space — the
+        // tenant's moratorium doesn't cover the guarantor (product choice).
+        if (
+          hasGuarantorEmail &&
+          !existingByKey.has(`${stage}|${RecipientRole.GUARANTOR}`)
+        ) {
+          await this.createEntry(c.caseId, c.id, stage, RecipientRole.GUARANTOR, dueAt, false);
+          entriesCreated++;
+        }
       }
 
       // Decide the new currentStage from the set of entries (existing +
@@ -161,6 +193,7 @@ export class ChaseTickService {
     caseId: string,
     chargeId: string,
     stage: ChaseStage,
+    recipientRole: RecipientRole,
     dueAt: Date,
     breathingSpace: boolean,
   ): Promise<void> {
@@ -168,10 +201,12 @@ export class ChaseTickService {
       case: { connect: { id: caseId } },
       charge: { connect: { id: chargeId } },
       stage,
+      recipientRole,
       dueAt,
       // R4.5: entries that come due during breathing space are skipped at
       // creation. firedAt is set so the digest job's `firedAt=null` filter
-      // ignores them, just like ones that have already fired.
+      // ignores them, just like ones that have already fired. Only applies
+      // to the tenant track — guarantor entries keep firing.
       ...(breathingSpace
         ? { skippedReason: 'BREATHING_SPACE_ACTIVE', firedAt: new Date() }
         : {}),

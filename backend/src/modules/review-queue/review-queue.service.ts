@@ -65,6 +65,7 @@ export interface ListedReviewQueueItem {
     Communication,
     | 'id'
     | 'direction'
+    | 'recipientRole'
     | 'subject'
     | 'consolidatedStage'
     | 'toAddress'
@@ -130,6 +131,7 @@ export class ReviewQueueService {
           select: {
             id: true,
             direction: true,
+            recipientRole: true,
             subject: true,
             consolidatedStage: true,
             toAddress: true,

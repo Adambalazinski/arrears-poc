@@ -5,6 +5,7 @@ import { renderTemplate, TemplateRenderError, type TemplateContext } from '../te
 function fullContext(): TemplateContext {
   return {
     tenant: { firstName: 'Jane', lastName: 'Tenant' },
+    guarantor: { firstName: 'Helen', lastName: 'Guarantor' },
     property: { address: 'Flat 2, 12 High Street, London', name: 'Flat 2' },
     case: {
       balanceFormatted: '£2,400.00',
