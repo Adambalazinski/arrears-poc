@@ -127,6 +127,7 @@ export function CasesListPage(): JSX.Element {
               <thead className="bg-muted/50 text-left">
                 <tr>
                   <Th>Tenancy</Th>
+                  <Th>Reference</Th>
                   <Th>Property</Th>
                   <Th>Balance</Th>
                   <Th>WD overdue</Th>
@@ -145,6 +146,13 @@ export function CasesListPage(): JSX.Element {
                       >
                         {c.tenancyId}
                       </Link>
+                    </Td>
+                    <Td>
+                      <span className="text-xs">
+                        {c.tenancy.reference ?? (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </span>
                     </Td>
                     <Td>{propertyLine(c.tenancy)}</Td>
                     <Td>{formatPence(c.lastKnownBalancePence)}</Td>
