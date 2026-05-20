@@ -5,6 +5,7 @@ import { AuthModule } from '../auth/auth.module';
 import { CasesModule } from '../cases/cases.module';
 import { ChaseModule } from '../chase/chase.module';
 import { InboundModule } from '../inbound/inbound.module';
+import { PromisesModule } from '../promises/promises.module';
 import { DevToolsController } from './dev-tools.controller';
 import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
 
@@ -16,6 +17,7 @@ import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
     WorkingDayModule,
     ClockModule,
     InboundModule,
+    PromisesModule,
   ],
   controllers: [DevToolsController],
   providers: [SeedFixtureEmailsService],

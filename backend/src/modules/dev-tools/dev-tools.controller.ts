@@ -18,6 +18,7 @@ import { LwcaInvoicePollJob } from '../cases/jobs/lwca-invoice-poll.job';
 import { ChaseTickService } from '../chase/chase-tick.service';
 import { DigestService } from '../chase/digest/digest.service';
 import { todayAt9LondonAsUtc } from '../chase/london-clock';
+import { PromiseExpiryJob } from '../promises/jobs/promise-expiry.job';
 import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
 
 const AdvanceClockSchema = z.object({
@@ -38,6 +39,7 @@ export class DevToolsController {
     private readonly digest: DigestService,
     private readonly seedFixtures: SeedFixtureEmailsService,
     private readonly lwcaPoll: LwcaInvoicePollJob,
+    private readonly promiseExpiry: PromiseExpiryJob,
   ) {}
 
   /**
@@ -132,6 +134,18 @@ export class DevToolsController {
     const before = this.clock.now();
     this.clock.reset();
     return { before: before.toISOString(), after: this.clock.now().toISOString() };
+  }
+
+  /**
+   * Run the PromiseExpiryJob inline — the local-dev shortcut for the
+   * scheduled @Cron at 09:00 London. Marks any ACTIVE promise whose date
+   * is in the past as BROKEN and drafts the broken-promise email.
+   */
+  @Post('run-promise-expiry')
+  @HttpCode(200)
+  async runPromiseExpiry() {
+    this.assertEnabled();
+    return this.promiseExpiry.runOnce();
   }
 
   private assertEnabled(): void {
