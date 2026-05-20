@@ -3,9 +3,11 @@ import {
   CaseEventKind,
   CaseStatus,
   type ChargeStatus,
+  ChaseSkippedReason,
   ChaseStage,
   type OrganisationConfig,
   type Prisma,
+  PromiseStatus,
   RecipientRole,
 } from '@prisma/client';
 import { Clock } from '../../common/clock/clock.service';
@@ -85,6 +87,11 @@ export class ChaseTickService {
                 },
               },
             },
+            promises: {
+              where: { status: PromiseStatus.ACTIVE },
+              select: { id: true },
+              take: 1,
+            },
           },
         },
         chaseScheduleEntries: {
@@ -113,6 +120,7 @@ export class ChaseTickService {
         c.chaseScheduleEntries.map((e) => [`${e.stage}|${e.recipientRole}`, e]),
       );
       const breathingSpace = c.case.breathingSpaceActive;
+      const promiseActive = c.case.promises.length > 0;
 
       // Whether to also emit a GUARANTOR-track entry for this charge. Only
       // create one if the tenancy has at least one guarantor with a
@@ -123,22 +131,27 @@ export class ChaseTickService {
 
       // Create entries for any newly-crossed stage that doesn't already
       // have a row (unique (chargeId, stage, recipientRole) constraint
-      // also guards this).
+      // also guards this). Promise-active pauses BOTH tracks (per the
+      // product choice). Breathing space pauses only the tenant track.
       for (const stage of crossed) {
         if (!existingByKey.has(`${stage}|${RecipientRole.TENANT}`)) {
-          // Tenant track is suspended during breathing space (R7.2).
-          await this.createEntry(c.caseId, c.id, stage, RecipientRole.TENANT, dueAt, breathingSpace);
-          if (breathingSpace) entriesSkipped++;
+          const skip = promiseActive
+            ? ChaseSkippedReason.PROMISE_ACTIVE
+            : breathingSpace
+              ? ChaseSkippedReason.BREATHING_SPACE_ACTIVE
+              : null;
+          await this.createEntry(c.caseId, c.id, stage, RecipientRole.TENANT, dueAt, skip);
+          if (skip) entriesSkipped++;
           else entriesCreated++;
         }
-        // Guarantor track keeps firing even during breathing space — the
-        // tenant's moratorium doesn't cover the guarantor (product choice).
         if (
           hasGuarantorEmail &&
           !existingByKey.has(`${stage}|${RecipientRole.GUARANTOR}`)
         ) {
-          await this.createEntry(c.caseId, c.id, stage, RecipientRole.GUARANTOR, dueAt, false);
-          entriesCreated++;
+          const skip = promiseActive ? ChaseSkippedReason.PROMISE_ACTIVE : null;
+          await this.createEntry(c.caseId, c.id, stage, RecipientRole.GUARANTOR, dueAt, skip);
+          if (skip) entriesSkipped++;
+          else entriesCreated++;
         }
       }
 
@@ -195,7 +208,7 @@ export class ChaseTickService {
     stage: ChaseStage,
     recipientRole: RecipientRole,
     dueAt: Date,
-    breathingSpace: boolean,
+    skippedReason: ChaseSkippedReason | null,
   ): Promise<void> {
     const data: Prisma.ChaseScheduleEntryCreateInput = {
       case: { connect: { id: caseId } },
@@ -203,12 +216,12 @@ export class ChaseTickService {
       stage,
       recipientRole,
       dueAt,
-      // R4.5: entries that come due during breathing space are skipped at
-      // creation. firedAt is set so the digest job's `firedAt=null` filter
-      // ignores them, just like ones that have already fired. Only applies
-      // to the tenant track — guarantor entries keep firing.
-      ...(breathingSpace
-        ? { skippedReason: 'BREATHING_SPACE_ACTIVE', firedAt: new Date() }
+      // Entries that come due during a paused state (R4.5 breathing space,
+      // R10 active promise) are skipped at creation. firedAt is set so
+      // the digest job's `firedAt=null` filter ignores them, just like
+      // entries that have already fired.
+      ...(skippedReason
+        ? { skippedReason, firedAt: new Date() }
         : {}),
     };
     try {

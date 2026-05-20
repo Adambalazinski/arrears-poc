@@ -14,6 +14,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { DevToolsModule } from './modules/dev-tools/dev-tools.module';
 import { InboundModule } from './modules/inbound/inbound.module';
 import { OrganisationsModule } from './modules/organisations/organisations.module';
+import { PromisesModule } from './modules/promises/promises.module';
 import { ReviewQueueModule } from './modules/review-queue/review-queue.module';
 import { TenanciesModule } from './modules/tenancies/tenancies.module';
 
@@ -35,6 +36,7 @@ import { TenanciesModule } from './modules/tenancies/tenancies.module';
     ReviewQueueModule,
     AiModule,
     InboundModule,
+    PromisesModule,
   ],
   controllers: [HealthController],
 })

@@ -225,6 +225,7 @@ export class CasesService {
           where: { resolvedAt: null },
           orderBy: { raisedAt: 'asc' },
         },
+        promises: { orderBy: { createdAt: 'desc' }, take: 20 },
       },
     });
     if (!found) throw new NotFoundException(`Case ${caseId} not found`);

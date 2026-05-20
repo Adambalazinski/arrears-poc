@@ -126,11 +126,29 @@ export interface EscalationFlagRow {
   payloadJson: unknown;
 }
 
+export type PromiseStatus = 'ACTIVE' | 'FULFILLED' | 'BROKEN' | 'CANCELLED';
+
+export interface PromiseRow {
+  id: string;
+  caseId: string;
+  status: PromiseStatus;
+  promiseDate: string;
+  note: string | null;
+  createdAt: string;
+  createdByUserId: string;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  resolutionNote: string | null;
+  sourceInboundCommunicationId: string | null;
+  updatedAt: string;
+}
+
 export interface CaseRowDetail extends Omit<CaseRowListed, 'charges' | 'tenancy'> {
   tenancy: TenancyRow & { tenancyContacts: TenancyContactRow[] };
   charges: ChargeRowDetail[];
   events: CaseEventRow[];
   escalationFlags: EscalationFlagRow[];
+  promises: PromiseRow[];
 }
 
 export const listCases = (orgId: string, status?: CaseStatus) => {
@@ -185,6 +203,39 @@ export const deactivateBreathingSpace = (caseId: string, input: { note?: string 
       body: JSON.stringify(input),
     },
   );
+
+export interface CreatePromiseInput {
+  promiseDate: string;
+  note?: string;
+  sourceInboundCommunicationId?: string;
+}
+
+export interface CreatePromiseResult {
+  promise: PromiseRow;
+  chaseEntriesSkipped: number;
+  draftsAutoRejected: number;
+}
+
+export const createPromise = (caseId: string, input: CreatePromiseInput) =>
+  apiJson<CreatePromiseResult>(`/api/cases/${encodeURIComponent(caseId)}/promises`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+export const fulfillPromise = (promiseId: string, note?: string) =>
+  apiJson<PromiseRow>(`/api/promises/${encodeURIComponent(promiseId)}/fulfill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(note ? { note } : {}),
+  });
+
+export const cancelPromise = (promiseId: string, note?: string) =>
+  apiJson<PromiseRow>(`/api/promises/${encodeURIComponent(promiseId)}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(note ? { note } : {}),
+  });
 
 /** Pull tenant display name from the linked Rentancy contacts on a case detail. */
 export function tenantNameFromDetail(detail: CaseRowDetail): string {

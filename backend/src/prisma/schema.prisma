@@ -215,6 +215,7 @@ model Case {
   communications        Communication[]
   escalationFlags       EscalationFlag[]
   classificationResults ClassificationResult[]
+  promises              Promise[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -329,6 +330,7 @@ enum ChaseSkippedReason {
   CASE_CLOSED
   AUTOSEND_DISABLED_AND_DRAFT_REJECTED
   HARD_TRIGGER_ESCALATION
+  PROMISE_ACTIVE
 }
 
 // ---------- Timeline ----------
@@ -370,6 +372,10 @@ enum CaseEventKind {
   S8_ELIGIBILITY_RAISED
   S8_ELIGIBILITY_RESCINDED
   HANDLER_ASSIGNED
+  PROMISE_CREATED
+  PROMISE_FULFILLED
+  PROMISE_BROKEN
+  PROMISE_CANCELLED
 }
 
 // ---------- Communications ----------
@@ -536,6 +542,47 @@ enum EscalationFlagKind {
   AI_CONFIDENCE_FAILURE
   STALE_BALANCE_60D // post-MVP rule
   REPEATED_SMALL_PAYMENTS // post-MVP rule
+}
+
+// ---------- Payment promises ----------
+
+// Tenant commits to pay the arrears by a specific date. While ACTIVE the
+// chase tick skips new ChaseScheduleEntry rows with PROMISE_ACTIVE and the
+// service auto-rejects pending OUTBOUND drafts on the case (per choice
+// landed with this slice). On expiry the PromiseExpiryJob marks the
+// promise BROKEN and drafts a broken-promise communication via the same
+// review-queue flow as digest drafts.
+model Promise {
+  id     String @id @default(uuid())
+  caseId String
+  case   Case   @relation(fields: [caseId], references: [id])
+
+  status      PromiseStatus @default(ACTIVE)
+  promiseDate DateTime // when the tenant said they would pay
+  note        String?
+
+  createdAt        DateTime @default(now())
+  createdByUserId  String
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  resolutionNote   String?
+
+  // Set when the promise was derived from an inbound message classified
+  // as PAYMENT_PROMISE. Lets the UI link back to the source.
+  sourceInboundCommunicationId String?
+
+  updatedAt DateTime @updatedAt
+
+  // Fast lookup of "is there an ACTIVE promise on this case?".
+  @@index([caseId, status])
+  @@map("promise")
+}
+
+enum PromiseStatus {
+  ACTIVE
+  FULFILLED
+  BROKEN
+  CANCELLED
 }
 
 // ---------- AI classifications ----------

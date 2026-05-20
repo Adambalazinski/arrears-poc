@@ -3,8 +3,11 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   activateBreathingSpace,
+  cancelPromise,
+  createPromise,
   deactivateBreathingSpace,
   formatPence,
+  fulfillPromise,
   getCase,
   propertyLine,
   refreshCase,
@@ -15,6 +18,7 @@ import {
   type ChargeRowDetail,
   type EscalationFlagKind,
   type EscalationFlagRow,
+  type PromiseRow,
 } from '@/lib/api-cases';
 
 export function CaseDetailPage(): JSX.Element {
@@ -71,6 +75,7 @@ export function CaseDetailPage(): JSX.Element {
       <section className="px-6 py-5 max-w-5xl mx-auto space-y-8">
         <SummaryCard c={c} />
         <EscalationStrip flags={c.escalationFlags} />
+        <PromiseCard caseId={c.id} status={c.status} promises={c.promises} />
         <BreathingSpaceCard caseId={c.id} active={c.breathingSpaceActive} status={c.status} />
         <ChargesTable charges={c.charges} />
         <Timeline events={c.events} />
@@ -245,6 +250,211 @@ function EscalationStrip({ flags }: { flags: EscalationFlagRow[] }): JSX.Element
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function PromiseCard({
+  caseId,
+  status,
+  promises,
+}: {
+  caseId: string;
+  status: 'ACTIVE' | 'CLOSED';
+  promises: PromiseRow[];
+}): JSX.Element {
+  const qc = useQueryClient();
+  const active = promises.find((p) => p.status === 'ACTIVE');
+  const history = promises.filter((p) => p.status !== 'ACTIVE').slice(0, 5);
+  const [open, setOpen] = useState(false);
+  // Default promise date = 7 days out, formatted for the date input.
+  const defaultPromiseDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const [promiseDate, setPromiseDate] = useState(defaultPromiseDate);
+  const [note, setNote] = useState('');
+
+  const reset = () => {
+    setOpen(false);
+    setNote('');
+    setPromiseDate(defaultPromiseDate);
+  };
+
+  const create = useMutation({
+    mutationFn: () =>
+      createPromise(caseId, {
+        promiseDate: new Date(promiseDate).toISOString(),
+        note: note.trim() || undefined,
+      }),
+    onSuccess: async () => {
+      reset();
+      await qc.invalidateQueries({ queryKey: ['case', caseId] });
+    },
+  });
+
+  const fulfill = useMutation({
+    mutationFn: (id: string) => fulfillPromise(id),
+    onSuccess: async () => qc.invalidateQueries({ queryKey: ['case', caseId] }),
+  });
+
+  const cancelM = useMutation({
+    mutationFn: (id: string) => cancelPromise(id),
+    onSuccess: async () => qc.invalidateQueries({ queryKey: ['case', caseId] }),
+  });
+
+  const pending = create.isPending || fulfill.isPending || cancelM.isPending;
+  const error =
+    create.error instanceof Error
+      ? create.error.message
+      : fulfill.error instanceof Error
+        ? fulfill.error.message
+        : cancelM.error instanceof Error
+          ? cancelM.error.message
+          : null;
+
+  return (
+    <div
+      className={`rounded border ${
+        active ? 'border-emerald-400 bg-emerald-50/30' : 'border-border'
+      } p-4`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground">Payment promise</h2>
+          {active ? (
+            <p className="text-sm mt-1">
+              <span className="font-semibold text-emerald-700">Active</span>
+              <span className="text-muted-foreground">
+                {' '}
+                — promised by{' '}
+                <span className="font-medium">
+                  {new Date(active.promiseDate).toLocaleDateString('en-GB')}
+                </span>
+                . Chase paused (R10).
+                {active.note && (
+                  <>
+                    {' '}
+                    <span className="italic">"{active.note}"</span>
+                  </>
+                )}
+              </span>
+            </p>
+          ) : (
+            <p className="text-sm mt-1 text-muted-foreground">
+              No active promise. Log one when the tenant commits to a payment date.
+            </p>
+          )}
+        </div>
+        {!open && status === 'ACTIVE' && (
+          <div className="flex gap-2">
+            {active ? (
+              <>
+                <button
+                  type="button"
+                  className="rounded bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm disabled:opacity-50"
+                  disabled={pending}
+                  onClick={() => fulfill.mutate(active.id)}
+                >
+                  Mark fulfilled
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-border px-3 py-1.5 text-sm disabled:opacity-50"
+                  disabled={pending}
+                  onClick={() => cancelM.mutate(active.id)}
+                >
+                  Cancel promise
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="rounded bg-primary text-primary-foreground px-3 py-1.5 text-sm disabled:opacity-50"
+                disabled={pending}
+                onClick={() => setOpen(true)}
+              >
+                Log promise…
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {open && !active && (
+        <div className="mt-4 border-t border-border pt-4 space-y-3">
+          <label className="block text-sm">
+            <span className="text-muted-foreground block mb-1">Promise date</span>
+            <input
+              type="date"
+              value={promiseDate}
+              onChange={(e) => setPromiseDate(e.target.value)}
+              className="rounded border border-border px-2 py-1 text-sm bg-background"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-muted-foreground block mb-1">Note (optional)</span>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value.slice(0, 500))}
+              rows={2}
+              className="w-full rounded border border-border px-2 py-1 text-sm bg-background"
+              placeholder="e.g. tenant called, paying Friday"
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Activating cancels any pending tenant + guarantor drafts on this case and pauses
+            chase events until the promise date. Date must be within 15 days; max two promises
+            per case in any 30-day window.
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded bg-primary text-primary-foreground px-3 py-1.5 text-sm disabled:opacity-50"
+              disabled={pending}
+              onClick={() => create.mutate()}
+            >
+              {pending ? 'Working…' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              className="rounded border border-border px-3 py-1.5 text-sm"
+              disabled={pending}
+              onClick={reset}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <details className="mt-3 text-xs text-muted-foreground">
+          <summary className="cursor-pointer">Past promises ({history.length})</summary>
+          <ul className="mt-2 space-y-1">
+            {history.map((p) => (
+              <li key={p.id} className="flex items-baseline gap-2">
+                <code className="text-[10px]">
+                  {new Date(p.createdAt).toLocaleDateString('en-GB')}
+                </code>
+                <span
+                  className={
+                    p.status === 'FULFILLED'
+                      ? 'text-emerald-600 font-medium'
+                      : p.status === 'BROKEN'
+                        ? 'text-destructive font-medium'
+                        : 'text-muted-foreground'
+                  }
+                >
+                  {p.status}
+                </span>
+                <span>
+                  by {new Date(p.promiseDate).toLocaleDateString('en-GB')}
+                  {p.note && ` — "${p.note}"`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
