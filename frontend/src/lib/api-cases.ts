@@ -143,12 +143,43 @@ export interface PromiseRow {
   updatedAt: string;
 }
 
+export type CommunicationDirection = 'INBOUND' | 'OUTBOUND';
+export type CommunicationStatus =
+  | 'DRAFT'
+  | 'AWAITING_APPROVAL'
+  | 'APPROVED'
+  | 'SENT'
+  | 'REJECTED'
+  | 'AUTO_REJECTED'
+  | 'PROCESSED'
+  | 'FAILED';
+
+export interface CommunicationSummary {
+  id: string;
+  direction: CommunicationDirection;
+  channel: 'EMAIL' | 'WHATSAPP';
+  status: CommunicationStatus;
+  recipientRole: 'TENANT' | 'GUARANTOR' | null;
+  consolidatedStage: ChaseStage | null;
+  toAddress: string | null;
+  fromAddress: string | null;
+  subject: string | null;
+  receivedAt: string | null;
+  sentAt: string | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  draftedByAi: boolean;
+}
+
 export interface CaseRowDetail extends Omit<CaseRowListed, 'charges' | 'tenancy'> {
   tenancy: TenancyRow & { tenancyContacts: TenancyContactRow[] };
   charges: ChargeRowDetail[];
   events: CaseEventRow[];
   escalationFlags: EscalationFlagRow[];
   promises: PromiseRow[];
+  communications: CommunicationSummary[];
 }
 
 export const listCases = (orgId: string, status?: CaseStatus) => {

@@ -16,6 +16,7 @@ import {
   type CaseEventRow,
   type CaseRowDetail,
   type ChargeRowDetail,
+  type CommunicationSummary,
   type EscalationFlagKind,
   type EscalationFlagRow,
   type PromiseRow,
@@ -79,7 +80,7 @@ export function CaseDetailPage(): JSX.Element {
         <BreathingSpaceCard caseId={c.id} active={c.breathingSpaceActive} status={c.status} />
         <ChargesTable charges={c.charges} />
         <Timeline events={c.events} />
-        <CommunicationsPlaceholder />
+        <Communications communications={c.communications ?? []} />
       </section>
     </main>
   );
@@ -618,15 +619,94 @@ function BreathingSpaceCard({
   );
 }
 
-function CommunicationsPlaceholder(): JSX.Element {
+function Communications({
+  communications,
+}: {
+  communications: CommunicationSummary[];
+}): JSX.Element {
   return (
-    <div className="border border-border rounded p-4">
-      <h2 className="text-sm font-medium text-muted-foreground mb-1">Communications</h2>
-      <p className="text-sm text-muted-foreground">
-        Inbound + outbound messages will appear here once Phase 5 (digest) and Phase 7
-        (inbound) land.
-      </p>
+    <div className="border border-border rounded">
+      <h2 className="text-sm font-medium text-muted-foreground px-4 py-3 border-b border-border">
+        Communications ({communications.length})
+      </h2>
+      {communications.length === 0 ? (
+        <p className="p-4 text-sm text-muted-foreground">No messages yet.</p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40 text-left">
+            <tr>
+              <th className="px-3 py-2 font-medium text-muted-foreground">When</th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">Direction</th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">Role</th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">Status</th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">Stage</th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">Counterparty</th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">Subject</th>
+            </tr>
+          </thead>
+          <tbody>
+            {communications.map((m) => (
+              <tr key={m.id} className="border-t border-border">
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {new Date(
+                    m.sentAt ?? m.receivedAt ?? m.createdAt,
+                  ).toLocaleString('en-GB')}
+                </td>
+                <td className="px-3 py-2">
+                  <DirectionChip direction={m.direction} />
+                </td>
+                <td className="px-3 py-2">{m.recipientRole ?? '—'}</td>
+                <td className="px-3 py-2">
+                  <StatusChip status={m.status} />
+                </td>
+                <td className="px-3 py-2">{m.consolidatedStage ?? '—'}</td>
+                <td className="px-3 py-2">
+                  {m.direction === 'INBOUND' ? m.fromAddress : m.toAddress}
+                </td>
+                <td className="px-3 py-2 truncate max-w-[260px]" title={m.subject ?? ''}>
+                  {m.subject ?? <span className="text-muted-foreground">(no subject)</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
+  );
+}
+
+function DirectionChip({ direction }: { direction: 'INBOUND' | 'OUTBOUND' }): JSX.Element {
+  const isIn = direction === 'INBOUND';
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+        isIn
+          ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
+          : 'bg-slate-500/15 text-slate-700 dark:text-slate-300'
+      }`}
+    >
+      {isIn ? '↓ IN' : '↑ OUT'}
+    </span>
+  );
+}
+
+function StatusChip({ status }: { status: CommunicationSummary['status'] }): JSX.Element {
+  const colour =
+    status === 'SENT'
+      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+      : status === 'AWAITING_APPROVAL'
+        ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+        : status === 'APPROVED'
+          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+          : status === 'REJECTED' || status === 'AUTO_REJECTED' || status === 'FAILED'
+            ? 'bg-destructive/15 text-destructive'
+            : 'bg-muted text-muted-foreground';
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${colour}`}
+    >
+      {status}
+    </span>
   );
 }
 

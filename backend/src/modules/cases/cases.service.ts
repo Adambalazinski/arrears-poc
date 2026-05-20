@@ -226,6 +226,28 @@ export class CasesService {
           orderBy: { raisedAt: 'asc' },
         },
         promises: { orderBy: { createdAt: 'desc' }, take: 20 },
+        communications: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            direction: true,
+            channel: true,
+            status: true,
+            recipientRole: true,
+            consolidatedStage: true,
+            toAddress: true,
+            fromAddress: true,
+            subject: true,
+            receivedAt: true,
+            sentAt: true,
+            approvedAt: true,
+            rejectedAt: true,
+            rejectionReason: true,
+            createdAt: true,
+            draftedByAi: true,
+          },
+        },
       },
     });
     if (!found) throw new NotFoundException(`Case ${caseId} not found`);
