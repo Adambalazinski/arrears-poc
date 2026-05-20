@@ -239,6 +239,8 @@ export class CasesService {
             toAddress: true,
             fromAddress: true,
             subject: true,
+            bodyMarkdown: true,
+            rawBodyText: true,
             receivedAt: true,
             sentAt: true,
             approvedAt: true,

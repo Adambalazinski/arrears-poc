@@ -164,6 +164,8 @@ export interface CommunicationSummary {
   toAddress: string | null;
   fromAddress: string | null;
   subject: string | null;
+  bodyMarkdown: string | null;
+  rawBodyText: string | null;
   receivedAt: string | null;
   sentAt: string | null;
   approvedAt: string | null;

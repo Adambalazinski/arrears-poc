@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -624,6 +624,15 @@ function Communications({
 }: {
   communications: CommunicationSummary[];
 }): JSX.Element {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   return (
     <div className="border border-border rounded">
       <h2 className="text-sm font-medium text-muted-foreground px-4 py-3 border-b border-border">
@@ -635,6 +644,7 @@ function Communications({
         <table className="w-full text-sm">
           <thead className="bg-muted/40 text-left">
             <tr>
+              <th className="px-3 py-2 font-medium text-muted-foreground w-6" />
               <th className="px-3 py-2 font-medium text-muted-foreground">When</th>
               <th className="px-3 py-2 font-medium text-muted-foreground">Direction</th>
               <th className="px-3 py-2 font-medium text-muted-foreground">Role</th>
@@ -645,29 +655,62 @@ function Communications({
             </tr>
           </thead>
           <tbody>
-            {communications.map((m) => (
-              <tr key={m.id} className="border-t border-border">
-                <td className="px-3 py-2 whitespace-nowrap">
-                  {new Date(
-                    m.sentAt ?? m.receivedAt ?? m.createdAt,
-                  ).toLocaleString('en-GB')}
-                </td>
-                <td className="px-3 py-2">
-                  <DirectionChip direction={m.direction} />
-                </td>
-                <td className="px-3 py-2">{m.recipientRole ?? '—'}</td>
-                <td className="px-3 py-2">
-                  <StatusChip status={m.status} />
-                </td>
-                <td className="px-3 py-2">{m.consolidatedStage ?? '—'}</td>
-                <td className="px-3 py-2">
-                  {m.direction === 'INBOUND' ? m.fromAddress : m.toAddress}
-                </td>
-                <td className="px-3 py-2 truncate max-w-[260px]" title={m.subject ?? ''}>
-                  {m.subject ?? <span className="text-muted-foreground">(no subject)</span>}
-                </td>
-              </tr>
-            ))}
+            {communications.map((m) => {
+              const isOpen = expanded.has(m.id);
+              const body = m.direction === 'INBOUND' ? m.rawBodyText : m.bodyMarkdown;
+              return (
+                <Fragment key={m.id}>
+                  <tr
+                    className="border-t border-border hover:bg-muted/30 cursor-pointer"
+                    onClick={() => toggle(m.id)}
+                  >
+                    <td className="px-3 py-2 text-muted-foreground text-xs">
+                      {isOpen ? '▾' : '▸'}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {new Date(
+                        m.sentAt ?? m.receivedAt ?? m.createdAt,
+                      ).toLocaleString('en-GB')}
+                    </td>
+                    <td className="px-3 py-2">
+                      <DirectionChip direction={m.direction} />
+                    </td>
+                    <td className="px-3 py-2">{m.recipientRole ?? '—'}</td>
+                    <td className="px-3 py-2">
+                      <StatusChip status={m.status} />
+                    </td>
+                    <td className="px-3 py-2">{m.consolidatedStage ?? '—'}</td>
+                    <td className="px-3 py-2">
+                      {m.direction === 'INBOUND' ? m.fromAddress : m.toAddress}
+                    </td>
+                    <td className="px-3 py-2 truncate max-w-[260px]" title={m.subject ?? ''}>
+                      {m.subject ?? <span className="text-muted-foreground">(no subject)</span>}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="border-t border-border bg-muted/10">
+                      <td />
+                      <td colSpan={7} className="px-3 py-3">
+                        {body ? (
+                          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                            {body}
+                          </pre>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">
+                            No body content recorded for this message.
+                          </p>
+                        )}
+                        {m.rejectionReason && (
+                          <p className="mt-3 text-xs text-destructive">
+                            Rejection reason: {m.rejectionReason}
+                          </p>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}
