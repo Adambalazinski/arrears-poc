@@ -220,8 +220,12 @@ model Case {
   updatedAt DateTime @updatedAt
 
   // Enforced via raw SQL migration (Prisma doesn't support partial unique indexes):
-  //   CREATE UNIQUE INDEX one_active_case_per_tenancy
-  //     ON "case" ("tenancyId") WHERE status = 'ACTIVE';
+  //   CREATE UNIQUE INDEX one_active_case_per_org_tenancy
+  //     ON "case" ("organisationId", "tenancyId") WHERE status = 'ACTIVE';
+  // Per-org rather than global so the same tenancyId can be claimed by
+  // different orgs in test setups; a tenancy never legitimately belongs
+  // to two orgs in real upstream data because Rentancy tenancy ids are
+  // global UUIDs.
 
   @@index([organisationId, status])
   @@index([tenancyId, status])
@@ -324,6 +328,7 @@ enum ChaseSkippedReason {
   CHARGE_RESOLVED
   CASE_CLOSED
   AUTOSEND_DISABLED_AND_DRAFT_REJECTED
+  HARD_TRIGGER_ESCALATION
 }
 
 // ---------- Timeline ----------

@@ -444,7 +444,10 @@ describe('InboundPipelineService — hard-trigger fixtures', () => {
       expect(caseRow.awaitingHandlerAction).toBe(true);
 
       // Chase track halted: two pending entries now firedAt + skippedReason,
-      // pre-existing fired entry untouched.
+      // pre-existing fired entry untouched. Skip reason reflects the actual
+      // trigger — BREATHING_SPACE_ACTIVE for the breathing-space trigger
+      // (because the auto-activation cascade owns the suspension),
+      // HARD_TRIGGER_ESCALATION for everything else.
       const entries = await prisma.chaseScheduleEntry.findMany({
         where: { caseId: seed.caseId },
         orderBy: { dueAt: 'asc' },
@@ -453,10 +456,14 @@ describe('InboundPipelineService — hard-trigger fixtures', () => {
       const [wd3, wd5, wd8] = entries;
       expect(wd3!.stage).toBe('WD3_SENT');
       expect(wd3!.skippedReason).toBeNull(); // already-fired entry untouched
+      const expectedSkipReason =
+        expectedTrigger === 'BREATHING_SPACE'
+          ? 'BREATHING_SPACE_ACTIVE'
+          : 'HARD_TRIGGER_ESCALATION';
       expect(wd5!.firedAt).not.toBeNull();
-      expect(wd5!.skippedReason).toBe('BREATHING_SPACE_ACTIVE');
+      expect(wd5!.skippedReason).toBe(expectedSkipReason);
       expect(wd8!.firedAt).not.toBeNull();
-      expect(wd8!.skippedReason).toBe('BREATHING_SPACE_ACTIVE');
+      expect(wd8!.skippedReason).toBe(expectedSkipReason);
 
       // Communication flipped to PROCESSED
       const updated = await prisma.communication.findUniqueOrThrow({

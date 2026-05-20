@@ -199,6 +199,62 @@ describe('CasesService — R1 case opens', () => {
     expect(second.opened).toBe(true);
     expect(second.caseId).not.toBe(first.caseId);
   });
+
+  it('allows two ACTIVE cases for the same tenancyId across different orgs', async () => {
+    // The partial unique index is per-(organisationId, tenancyId), not
+    // global, so cross-org test setups stop tripping the unique violation
+    // we kept hitting when swapping workspaces.
+    const OTHER_ORG = 'second-rules-test-org';
+    await prisma.organisation.upsert({
+      where: { id: OTHER_ORG },
+      create: { id: OTHER_ORG, name: 'Second rules org' },
+      update: {},
+    });
+    // Both orgs need a Tenancy row to satisfy the FK. Tenancy.id is a
+    // single-column primary key, so we can only have one tenancy with
+    // this id globally — that's fine; the cases reference the same
+    // tenancy row.
+    await prisma.tenancy.upsert({
+      where: { id: 'tenancy-cross-org' },
+      create: {
+        id: 'tenancy-cross-org',
+        organisationId: ORG_ID,
+        propertyId: 'prop-cross',
+        status: 'ACTIVE',
+        lastSyncedAt: new Date(),
+      },
+      update: {},
+    });
+
+    const a = await prisma.case.create({
+      data: {
+        organisationId: ORG_ID,
+        tenancyId: 'tenancy-cross-org',
+        status: 'ACTIVE',
+        openedAt: new Date(),
+        lastKnownBalancePence: 0n,
+        lastKnownBalanceAt: new Date(),
+      },
+    });
+    const b = await prisma.case.create({
+      data: {
+        organisationId: OTHER_ORG,
+        tenancyId: 'tenancy-cross-org',
+        status: 'ACTIVE',
+        openedAt: new Date(),
+        lastKnownBalancePence: 0n,
+        lastKnownBalanceAt: new Date(),
+      },
+    });
+    expect(a.id).not.toBe(b.id);
+
+    // Cleanup so the next test sees a fresh state.
+    await prisma.case.deleteMany({
+      where: { tenancyId: 'tenancy-cross-org' },
+    });
+    await prisma.tenancy.deleteMany({ where: { id: 'tenancy-cross-org' } });
+    await prisma.organisation.deleteMany({ where: { id: OTHER_ORG } });
+  });
 });
 
 describe('CasesService — recomputeBalance', () => {

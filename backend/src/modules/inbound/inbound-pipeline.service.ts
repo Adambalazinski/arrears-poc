@@ -608,9 +608,18 @@ export class InboundPipelineService {
         data: { awaitingHandlerAction: true },
       });
 
+      // BREATHING_SPACE keeps its own reason because the auto-activation
+      // cascade (R7.1.b, fired right after this transaction) is what
+      // semantically caused the skip. For other triggers the audit trail
+      // should reflect the actual cause — the hard-trigger escalation
+      // itself.
+      const skipReason =
+        trigger === EscalationFlagKind.BREATHING_SPACE
+          ? 'BREATHING_SPACE_ACTIVE'
+          : 'HARD_TRIGGER_ESCALATION';
       await tx.chaseScheduleEntry.updateMany({
         where: { caseId: comm.caseId, firedAt: null },
-        data: { firedAt: now, skippedReason: 'BREATHING_SPACE_ACTIVE' },
+        data: { firedAt: now, skippedReason: skipReason },
       });
 
       await tx.communication.update({
