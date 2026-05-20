@@ -74,8 +74,8 @@ export function CaseDetailPage(): JSX.Element {
 
       <section className="px-6 py-5 max-w-5xl mx-auto space-y-8">
         <SummaryCard c={c} />
-        <EscalationStrip flags={c.escalationFlags} />
-        <PromiseCard caseId={c.id} status={c.status} promises={c.promises} />
+        <EscalationStrip flags={c.escalationFlags ?? []} />
+        <PromiseCard caseId={c.id} status={c.status} promises={c.promises ?? []} />
         <BreathingSpaceCard caseId={c.id} active={c.breathingSpaceActive} status={c.status} />
         <ChargesTable charges={c.charges} />
         <Timeline events={c.events} />
