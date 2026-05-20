@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth';
 import { getOrganisation } from '@/lib/api-orgs';
-import { formatPence } from '@/lib/api-cases';
+import { createPromise, formatPence } from '@/lib/api-cases';
 import {
   approveReviewQueueItem,
   dismissReviewQueueItem,
@@ -343,6 +343,123 @@ function InboundOriginalPanel({
   );
 }
 
+function PaymentPromisePanel({
+  caseId,
+  sourceInboundCommunicationId,
+}: {
+  caseId: string;
+  sourceInboundCommunicationId: string;
+}): JSX.Element {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const defaultDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const [promiseDate, setPromiseDate] = useState(defaultDate);
+  const [note, setNote] = useState('');
+  const [created, setCreated] = useState<string | null>(null);
+
+  const create = useMutation({
+    mutationFn: () =>
+      createPromise(caseId, {
+        promiseDate: new Date(promiseDate).toISOString(),
+        note: note.trim() || undefined,
+        sourceInboundCommunicationId,
+      }),
+    onSuccess: async (r) => {
+      setCreated(r.promise.id);
+      setOpen(false);
+      setNote('');
+      // Refresh the case detail (cascade may have auto-rejected other
+      // drafts on this case) and the review queue (this item's status
+      // is unchanged — handler still owns the draft-reply decision).
+      await qc.invalidateQueries({ queryKey: ['case', caseId] });
+      await qc.invalidateQueries({ queryKey: ['review-queue'] });
+    },
+  });
+
+  return (
+    <div className="border border-emerald-400 bg-emerald-50/30 rounded p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium text-emerald-800">
+            AI detected a payment promise
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Classifier flagged intent=PAYMENT_PROMISE. Log this as a formal promise to
+            pause chase events until the date the tenant gave (R10). Replying to the
+            tenant is a separate decision — handle the draft below as usual.
+          </p>
+        </div>
+        {!open && !created && (
+          <button
+            type="button"
+            className="rounded bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm"
+            onClick={() => setOpen(true)}
+          >
+            Log promise…
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-4 border-t border-emerald-200 pt-4 space-y-3">
+          <label className="block text-sm">
+            <span className="text-muted-foreground block mb-1">Promise date</span>
+            <input
+              type="date"
+              value={promiseDate}
+              onChange={(e) => setPromiseDate(e.target.value)}
+              className="rounded border border-border px-2 py-1 text-sm bg-background"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-muted-foreground block mb-1">Note (optional)</span>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value.slice(0, 500))}
+              rows={2}
+              className="w-full rounded border border-border px-2 py-1 text-sm bg-background"
+              placeholder='e.g. acknowledges in their reply: "will pay Friday"'
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Pauses both tenant and guarantor chase entries until the promise date.
+            Pending drafts on this case will be auto-rejected. Date must be within 15
+            days; max two promises per case in any 30-day window.
+          </p>
+          {create.error && (
+            <p className="text-sm text-destructive">
+              {create.error instanceof Error ? create.error.message : 'failed'}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm disabled:opacity-50"
+              disabled={create.isPending}
+              onClick={() => create.mutate()}
+            >
+              {create.isPending ? 'Logging…' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              className="rounded border border-border px-3 py-1.5 text-sm"
+              disabled={create.isPending}
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {created && (
+        <p className="mt-3 text-sm text-emerald-700">
+          Promise logged. The promise card on the case detail now reflects the active
+          status; this review item is unchanged.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function OutboundDraftPanel({
   it,
   onResolved,
@@ -380,6 +497,12 @@ function OutboundDraftPanel({
     <>
       {it.classification && <ClassificationPanel classification={it.classification} />}
       {it.inbound && <InboundOriginalPanel inbound={it.inbound} />}
+      {it.classification?.intent === 'PAYMENT_PROMISE' && it.inbound && (
+        <PaymentPromisePanel
+          caseId={it.caseId}
+          sourceInboundCommunicationId={it.inbound.id}
+        />
+      )}
 
       <div className="border border-border rounded p-4">
         <h3 className="text-sm font-medium text-muted-foreground mb-2">Draft reply</h3>
