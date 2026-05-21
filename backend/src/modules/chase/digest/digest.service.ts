@@ -16,7 +16,6 @@ import {
   type Tenancy,
   type TenancyContact,
   type Contact,
-  type Communication,
 } from '@prisma/client';
 import { Clock } from '../../../common/clock/clock.service';
 import { PrismaService } from '../../../integrations/prisma/prisma.service';

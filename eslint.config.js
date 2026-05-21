@@ -17,5 +17,20 @@ module.exports = [
     ],
   },
   ...tseslint.configs.recommended,
+  {
+    rules: {
+      // Allow underscore-prefixed args/vars to be intentionally unused. The
+      // codebase uses this for required-by-signature-but-unread params on
+      // fixture clients and stub implementations.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
   prettier,
 ];

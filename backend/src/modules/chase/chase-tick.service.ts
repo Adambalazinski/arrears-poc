@@ -18,7 +18,6 @@ import {
   STAGE_SEVERITY,
   stagesCrossed,
   thresholdsFromConfig,
-  type ChaseThreshold,
 } from './chase-thresholds';
 import { todayAt9LondonAsUtc } from './london-clock';
 

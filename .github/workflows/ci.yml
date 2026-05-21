@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: arrears
+          POSTGRES_PASSWORD: arrears
+          POSTGRES_DB: arrears_poc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U arrears -d arrears_poc"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # Vitest globalSetup creates `arrears_poc_test` off this URL.
+      DATABASE_URL: postgres://arrears:arrears@localhost:5432/arrears_poc
+      # Valid 32-byte base64 placeholder. Only credential-store tests touch
+      # it, and they overwrite with their own random key; this keeps any
+      # accidental config-loader boot happy.
+      CREDENTIAL_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      # Pinned at LWCA stage — hard rule #1 forbids prod hosts.
+      LWCA_STAGE_BASE_URL: https://loftyworks-accounting.stage.pay.loftyworks.com
+      RENTANCY_STAGE_BASE_URL: https://rentancy-api.stage.pay.loftyworks.com
+      # ANTHROPIC_MODE defaults to 'disabled' — no key needed in CI. Tests
+      # use the throw-on-call stub.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter backend exec prisma generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm --filter backend test
+
+      - name: Build
+        run: pnpm build
