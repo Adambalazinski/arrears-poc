@@ -12,6 +12,10 @@ const ARREARS_QS = new URLSearchParams({
   type: 'OUTBOUND',
   isArrear: 'true',
   statuses: 'UNPAID,PARTIALLY_PAID,PARTIALLY_RECONCILED',
+  // Arrears chasing is rent-only: we explicitly exclude deposits, council tax,
+  // utilities, etc. LWCA exposes the line-item-type vocabulary on
+  // GET /v1/api/invoice/lineItemType — "Rent" is one of those literal values.
+  lineItemType: 'Rent',
   size: '100',
   sort: 'due_date,asc',
 });

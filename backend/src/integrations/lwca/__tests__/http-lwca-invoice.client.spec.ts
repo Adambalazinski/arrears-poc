@@ -70,6 +70,7 @@ describe('HttpLwcaInvoiceClient', () => {
     expect(calls[0]).toContain('isArrear=true');
     expect(calls[0]).toContain('statuses=UNPAID%2CPARTIALLY_PAID%2CPARTIALLY_RECONCILED');
     expect(calls[0]).toContain('type=OUTBOUND');
+    expect(calls[0]).toContain('lineItemType=Rent');
     expect(calls[0]).toContain('page=1');
   });
 
