@@ -44,6 +44,8 @@ export class ChargesService {
             lastKnownRemainAmountPence: input.lastKnownRemainAmountPence,
             lastKnownStatus: input.lastKnownStatus,
             lastKnownPaymentCycleType: input.lastKnownPaymentCycleType,
+            lastKnownType: input.lastKnownType,
+            lastKnownDescription: input.lastKnownDescription,
             lastSyncedAt: input.lastSyncedAt,
           },
         });
@@ -61,6 +63,8 @@ export class ChargesService {
           lastKnownRemainAmountPence: input.lastKnownRemainAmountPence,
           lastKnownStatus: input.lastKnownStatus,
           lastKnownPaymentCycleType: input.lastKnownPaymentCycleType,
+          lastKnownType: input.lastKnownType,
+          lastKnownDescription: input.lastKnownDescription,
           lastSyncedAt: input.lastSyncedAt,
         },
       });

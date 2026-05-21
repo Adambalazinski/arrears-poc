@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AppNav } from '@/components/AppNav';
 import {
   getCredentials,
   getOrgConfig,
@@ -21,15 +22,11 @@ export function OrganisationConfigPage(): JSX.Element {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      <AppNav orgId={id} />
       <header className="border-b border-border px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="text-sm underline text-muted-foreground">
-            ← organisations
-          </Link>
-          <div>
-            <h1 className="text-xl font-semibold">{org.data?.name ?? id}</h1>
-            <code className="text-xs text-muted-foreground">{id}</code>
-          </div>
+        <div>
+          <h1 className="text-xl font-semibold">{org.data?.name ?? id}</h1>
+          <code className="text-xs text-muted-foreground">{id}</code>
         </div>
       </header>
 

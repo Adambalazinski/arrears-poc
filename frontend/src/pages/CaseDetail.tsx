@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AppNav } from '@/components/AppNav';
 import {
   activateBreathingSpace,
   cancelPromise,
@@ -45,18 +46,11 @@ export function CaseDetailPage(): JSX.Element {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      <AppNav orgId={c.organisationId} />
       <header className="border-b border-border px-6 py-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link
-            to={`/organisations/${encodeURIComponent(c.organisationId)}/cases`}
-            className="text-sm underline text-muted-foreground"
-          >
-            ← cases
-          </Link>
-          <div>
-            <h1 className="text-xl font-semibold">{tenantNameFromDetail(c)}</h1>
-            <code className="text-xs text-muted-foreground">case {c.id}</code>
-          </div>
+        <div>
+          <h1 className="text-xl font-semibold">{tenantNameFromDetail(c)}</h1>
+          <code className="text-xs text-muted-foreground">case {c.id}</code>
         </div>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-muted-foreground">
@@ -79,8 +73,8 @@ export function CaseDetailPage(): JSX.Element {
         <PromiseCard caseId={c.id} status={c.status} promises={c.promises ?? []} />
         <BreathingSpaceCard caseId={c.id} active={c.breathingSpaceActive} status={c.status} />
         <ChargesTable charges={c.charges} />
-        <Timeline events={c.events} />
         <Communications communications={c.communications ?? []} />
+        <Timeline events={c.events} />
       </section>
     </main>
   );
@@ -164,6 +158,8 @@ function ChargesTable({ charges }: { charges: ChargeRowDetail[] }): JSX.Element 
           <thead className="bg-muted/40 text-left">
             <tr>
               <th className="px-3 py-2 font-medium text-muted-foreground">Invoice</th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">Type</th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">Description</th>
               <th className="px-3 py-2 font-medium text-muted-foreground">Due</th>
               <th className="px-3 py-2 font-medium text-muted-foreground">Gross</th>
               <th className="px-3 py-2 font-medium text-muted-foreground">Remain</th>
@@ -176,6 +172,10 @@ function ChargesTable({ charges }: { charges: ChargeRowDetail[] }): JSX.Element 
             {charges.map((ch) => (
               <tr key={ch.id} className="border-t border-border">
                 <td className="px-3 py-2 font-mono text-xs">{ch.lwcaInvoiceId}</td>
+                <td className="px-3 py-2 text-xs">{ch.lastKnownType ?? <span className="text-muted-foreground">—</span>}</td>
+                <td className="px-3 py-2 text-xs max-w-[260px] truncate" title={ch.lastKnownDescription ?? ''}>
+                  {ch.lastKnownDescription ?? <span className="text-muted-foreground">—</span>}
+                </td>
                 <td className="px-3 py-2">{new Date(ch.dueDate).toLocaleDateString('en-GB')}</td>
                 <td className="px-3 py-2">{formatPence(ch.grossAmountPence)}</td>
                 <td className="px-3 py-2">{formatPence(ch.lastKnownRemainAmountPence)}</td>
@@ -192,28 +192,37 @@ function ChargesTable({ charges }: { charges: ChargeRowDetail[] }): JSX.Element 
 }
 
 function Timeline({ events }: { events: CaseEventRow[] }): JSX.Element {
+  const [open, setOpen] = useState(false);
   return (
     <div className="border border-border rounded">
-      <h2 className="text-sm font-medium text-muted-foreground px-4 py-3 border-b border-border">
-        Timeline ({events.length})
-      </h2>
-      {events.length === 0 ? (
-        <p className="p-4 text-sm text-muted-foreground">No events yet.</p>
-      ) : (
-        <ol className="divide-y divide-border">
-          {events.map((e) => (
-            <li key={e.id} className="px-4 py-2 text-sm flex items-baseline gap-3">
-              <code className="text-xs text-muted-foreground w-44 shrink-0">
-                {new Date(e.occurredAt).toLocaleString('en-GB')}
-              </code>
-              <span className="font-medium w-56 shrink-0">{e.kind}</span>
-              <code className="text-xs text-muted-foreground break-all">
-                {summarisePayload(e.payloadJson)}
-              </code>
-            </li>
-          ))}
-        </ol>
-      )}
+      <button
+        type="button"
+        className="w-full text-left px-4 py-3 border-b border-border flex items-center justify-between hover:bg-muted/30"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <h2 className="text-sm font-medium text-muted-foreground">
+          Timeline ({events.length})
+        </h2>
+        <span className="text-xs text-muted-foreground">{open ? '▾ hide' : '▸ show'}</span>
+      </button>
+      {open &&
+        (events.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">No events yet.</p>
+        ) : (
+          <ol className="divide-y divide-border">
+            {events.map((e) => (
+              <li key={e.id} className="px-4 py-2 text-sm flex items-baseline gap-3">
+                <code className="text-xs text-muted-foreground w-44 shrink-0">
+                  {new Date(e.occurredAt).toLocaleString('en-GB')}
+                </code>
+                <span className="font-medium w-56 shrink-0">{e.kind}</span>
+                <code className="text-xs text-muted-foreground break-all">
+                  {summarisePayload(e.payloadJson)}
+                </code>
+              </li>
+            ))}
+          </ol>
+        ))}
     </div>
   );
 }

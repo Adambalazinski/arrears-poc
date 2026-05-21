@@ -75,6 +75,8 @@ function lwca(overrides: Partial<LwcaChargeUpsert> = {}): LwcaChargeUpsert {
     lastKnownRemainAmountPence: 120000n,
     lastKnownStatus: 'UNPAID',
     lastKnownPaymentCycleType: 'MONTHLY',
+    lastKnownType: 'RENT',
+    lastKnownDescription: null,
     lastSyncedAt: new Date('2026-05-01T10:00:00Z'),
     upstreamReferenceId: 'INV-001',
     ...overrides,

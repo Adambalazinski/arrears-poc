@@ -101,6 +101,8 @@ export interface ChargeRowDetail extends ChargeRowSummary {
   invoiceDate: string;
   currentStageEnteredAt: string | null;
   lastKnownPaymentCycleType: string | null;
+  lastKnownType: string | null;
+  lastKnownDescription: string | null;
 }
 
 export type EscalationFlagKind =

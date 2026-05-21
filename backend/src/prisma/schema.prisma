@@ -253,6 +253,8 @@ model Charge {
   lastKnownRemainAmountPence BigInt // updated on every sync
   lastKnownStatus            ChargeStatus
   lastKnownPaymentCycleType  String? // RECURRING etc. — recurring charges excluded from arrears
+  lastKnownType              String? // LWCA invoice.type (RENT / DEPOSIT / etc.)
+  lastKnownDescription       String? // LWCA invoice.description — free-text label from upstream
   lastSyncedAt               DateTime
 
   // Per-charge cadence state

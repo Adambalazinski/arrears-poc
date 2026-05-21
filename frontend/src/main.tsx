@@ -7,6 +7,7 @@ import { CaseDetailPage } from './pages/CaseDetail';
 import { CasesListPage } from './pages/CasesList';
 import { LoginPage } from './pages/Login';
 import { OrganisationsListPage } from './pages/OrganisationsList';
+import { OrganisationsNewPage } from './pages/OrganisationsNew';
 import { OrganisationConfigPage } from './pages/OrganisationConfig';
 import { ReviewQueuePage } from './pages/ReviewQueue';
 import './index.css';
@@ -28,6 +29,7 @@ function AuthedRoutes(): JSX.Element {
   return (
     <Routes>
       <Route path="/" element={<OrganisationsListPage />} />
+      <Route path="/organisations/new" element={<OrganisationsNewPage />} />
       <Route
         path="/organisations/:id/config"
         element={<OrganisationConfigPage />}

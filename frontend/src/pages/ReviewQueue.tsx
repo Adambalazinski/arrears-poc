@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AppNav } from '@/components/AppNav';
 import { useAuth } from '@/lib/auth';
 import { getOrganisation } from '@/lib/api-orgs';
 import { createPromise, formatPence } from '@/lib/api-cases';
@@ -43,15 +44,11 @@ export function ReviewQueuePage(): JSX.Element {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      <AppNav orgId={orgId} />
       <header className="border-b border-border px-6 py-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="text-sm underline text-muted-foreground">
-            ← organisations
-          </Link>
-          <div>
-            <h1 className="text-xl font-semibold">Review queue — {org.data?.name ?? orgId}</h1>
-            <code className="text-xs text-muted-foreground">{orgId}</code>
-          </div>
+        <div>
+          <h1 className="text-xl font-semibold">Review queue — {org.data?.name ?? orgId}</h1>
+          <code className="text-xs text-muted-foreground">{orgId}</code>
         </div>
         <div className="text-sm text-muted-foreground flex items-center gap-3">
           <span>

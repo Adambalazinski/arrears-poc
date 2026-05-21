@@ -41,7 +41,8 @@ export const LwcaInvoiceSchema = z.object({
   // Stage returns null for unallocated/ad-hoc invoices; the mapper drops
   // them because the chase pipeline is keyed on tenancies.
   tenancyId: z.string().nullable(),
-  type: z.string().optional(),
+  type: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
   payeeType: z.string().optional(),
   property: LwcaInvoicePropertySchema.optional(),
   payer: z

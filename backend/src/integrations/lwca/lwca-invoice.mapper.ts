@@ -16,6 +16,8 @@ export interface LwcaChargeUpsert {
   lastKnownRemainAmountPence: bigint;
   lastKnownStatus: ChargeStatus;
   lastKnownPaymentCycleType: string | null;
+  lastKnownType: string | null;
+  lastKnownDescription: string | null;
   lastSyncedAt: Date;
   /** Reference id from LWCA — display only, not stored on Charge yet. */
   upstreamReferenceId: string | null;
@@ -80,6 +82,8 @@ export class LwcaInvoiceMapper {
           lastKnownRemainAmountPence: remain,
           lastKnownStatus: inv.status,
           lastKnownPaymentCycleType: inv.paymentCycleType ?? null,
+          lastKnownType: inv.type ?? null,
+          lastKnownDescription: inv.description ?? null,
           lastSyncedAt: now,
           upstreamReferenceId: inv.referenceId ?? null,
         },
