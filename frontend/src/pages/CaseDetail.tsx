@@ -158,7 +158,6 @@ function ChargesTable({ charges }: { charges: ChargeRowDetail[] }): JSX.Element 
           <thead className="bg-muted/40 text-left">
             <tr>
               <th className="px-3 py-2 font-medium text-muted-foreground">Invoice</th>
-              <th className="px-3 py-2 font-medium text-muted-foreground">Type</th>
               <th className="px-3 py-2 font-medium text-muted-foreground">Description</th>
               <th className="px-3 py-2 font-medium text-muted-foreground">Due</th>
               <th className="px-3 py-2 font-medium text-muted-foreground">Gross</th>
@@ -172,7 +171,6 @@ function ChargesTable({ charges }: { charges: ChargeRowDetail[] }): JSX.Element 
             {charges.map((ch) => (
               <tr key={ch.id} className="border-t border-border">
                 <td className="px-3 py-2 font-mono text-xs">{ch.lwcaInvoiceId}</td>
-                <td className="px-3 py-2 text-xs">{ch.lastKnownType ?? <span className="text-muted-foreground">—</span>}</td>
                 <td className="px-3 py-2 text-xs max-w-[260px] truncate" title={ch.lastKnownDescription ?? ''}>
                   {ch.lastKnownDescription ?? <span className="text-muted-foreground">—</span>}
                 </td>
