@@ -80,21 +80,34 @@ export class DevToolsController {
   @Get('inspect-lwca/:orgId')
   async inspectLwca(@Param('orgId') orgId: string) {
     this.assertEnabled();
-    const raw = await this.lwca.listAllRaw(orgId);
-    return {
-      organisationId: orgId,
-      count: raw.length,
-      invoices: raw.map((inv) => ({
-        id: inv.id,
-        status: inv.status,
-        remainAmount: inv.remainAmount,
-        dueDate: inv.dueDate,
-        tenancyId: inv.tenancyId,
-        type: inv.type,
-        description: inv.description,
-        lineItems: inv.lineItems,
-      })),
-    };
+    try {
+      const raw = await this.lwca.listAllRaw(orgId);
+      return {
+        organisationId: orgId,
+        count: raw.length,
+        invoices: raw.map((inv) => ({
+          id: inv.id,
+          status: inv.status,
+          remainAmount: inv.remainAmount,
+          dueDate: inv.dueDate,
+          tenancyId: inv.tenancyId,
+          type: inv.type,
+          description: inv.description,
+          lineItems: inv.lineItems,
+        })),
+      };
+    } catch (err) {
+      const e = err as Error & { status?: number; stack?: string };
+      return {
+        organisationId: orgId,
+        error: {
+          name: e.name,
+          message: e.message,
+          status: e.status,
+          stack: e.stack?.split('\n').slice(0, 8),
+        },
+      };
+    }
   }
 
   @Get('fixture-emails')

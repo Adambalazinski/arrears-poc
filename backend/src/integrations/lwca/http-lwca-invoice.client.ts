@@ -22,6 +22,14 @@ const ARREARS_QS = new URLSearchParams({
 
 const PROBE_QS = new URLSearchParams({ type: 'OUTBOUND', size: '1' });
 
+/**
+ * Max in-flight per-invoice hydrate calls. Conservative on purpose:
+ * LWCA stage capacity is unknown and bursting 50+ parallel connections
+ * at it has burned us elsewhere with rate-limits and connection resets.
+ * Tune up if syncs feel slow under live load.
+ */
+const HYDRATE_CONCURRENCY = 5;
+
 @Injectable()
 export class HttpLwcaInvoiceClient implements LwcaInvoiceClient {
   private readonly logger = new Logger(HttpLwcaInvoiceClient.name);
@@ -63,14 +71,13 @@ export class HttpLwcaInvoiceClient implements LwcaInvoiceClient {
       // single-invoice endpoint returns `lineItems` but no `description`.
       // We need both — description for display, lineItems to tell rent
       // apart from deposit / council-tax / etc. Hydrate each summary
-      // with the full record's lineItems. N+1 requests, but POC
-      // workspaces are small (<50 invoices).
-      return Promise.all(
-        summaries.map(async (inv) => {
-          const full = await this.getInvoice(inv.id, token);
-          return { ...inv, lineItems: full.lineItems };
-        }),
-      );
+      // with the full record's lineItems. N+1 requests; capped at
+      // HYDRATE_CONCURRENCY in flight so we don't burst LWCA with 50+
+      // parallel connections at workspace scale.
+      return mapWithConcurrency(summaries, HYDRATE_CONCURRENCY, async (inv) => {
+        const full = await this.getInvoice(inv.id, token);
+        return { ...inv, lineItems: full.lineItems };
+      });
     });
   }
 
@@ -144,4 +151,36 @@ function isProductionLikeHost(url: string): boolean {
   if (/^https?:\/\/(www\.)?uk\.loftyworks\.com/.test(lower)) return true;
   if (/loftyworks\.com(\/|$)/.test(lower) && !lower.includes('stage')) return true;
   return false;
+}
+
+/**
+ * Bounded-concurrency `Promise.all`. Spawns up to `limit` workers, each
+ * pulling indices off a shared counter until the input is exhausted.
+ * Preserves input order in the returned array.
+ *
+ * Sliding window beats batched `Promise.all`s: a single slow request in
+ * a batch stalls the whole batch, whereas a sliding window only stalls
+ * one slot. With cap=5 and one 10s outlier, batched costs ~20s for 20
+ * items; sliding costs ~12s.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (limit <= 0) throw new Error(`mapWithConcurrency: limit must be > 0 (got ${limit})`);
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= items.length) return;
+        results[idx] = await fn(items[idx]!, idx);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }

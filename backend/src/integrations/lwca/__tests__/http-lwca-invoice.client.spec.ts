@@ -209,6 +209,55 @@ describe('HttpLwcaInvoiceClient', () => {
     expect(mixed.charge.lastKnownDescription).toBe('Rent + council tax 05/2026');
   });
 
+  it('listArrears: caps per-invoice hydrate concurrency to 5 in flight', async () => {
+    // Stages a 50-invoice workspace and tracks peak in-flight count
+    // against the cap defined in the client (HYDRATE_CONCURRENCY=5).
+    const N = 50;
+    const summaries = Array.from({ length: N }, (_, i) => ({
+      id: `inv-${i.toString().padStart(2, '0')}`,
+      organisationId: 'org-1',
+      grossAmount: 100,
+      remainAmount: 100,
+      dueDate: '2026-04-01',
+      invoiceDate: '2026-03-15',
+      status: 'UNPAID',
+      paymentCycleType: 'MONTHLY',
+      tenancyId: 't-1',
+    }));
+
+    let inFlight = 0;
+    let peakInFlight = 0;
+    mockFetch(async (url) => {
+      if (isListCall(url)) {
+        return new Response(
+          JSON.stringify({ content: summaries, totalPages: 1 }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      inFlight++;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      // Yield twice so the macrotask queue drains enough for any
+      // unbounded-Promise.all bug to spike inFlight visibly.
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      inFlight--;
+      const id = url.split('/').pop()!.split('?')[0]!;
+      const summary = summaries.find((s) => s.id === id)!;
+      return new Response(
+        JSON.stringify({ ...summary, lineItems: [{ type: 'Rent' }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    const client = new HttpLwcaInvoiceClient(passthroughCognito());
+    const out = await client.listArrears('org-1');
+    expect(out).toHaveLength(N);
+    expect(peakInFlight).toBeLessThanOrEqual(5);
+    // Sanity-check that the pool actually ran in parallel — if it
+    // accidentally serialised, peak would be 1.
+    expect(peakInFlight).toBeGreaterThan(1);
+  });
+
   it('probe: ok=true on 200 + JSON content-type, ok=false on 401', async () => {
     let nextStatus = 200;
     mockFetch(async () =>
