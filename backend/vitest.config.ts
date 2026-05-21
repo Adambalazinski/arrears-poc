@@ -13,6 +13,9 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: { forks: { singleFork: true } },
     fileParallelism: false,
+    // Redirects DATABASE_URL to a dedicated arrears_poc_test DB before any
+    // spec runs — keeps `pnpm dev` and `pnpm test` from sharing state.
+    globalSetup: ['./test-setup/global-setup.ts'],
   },
   resolve: {
     alias: {
