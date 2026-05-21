@@ -153,7 +153,11 @@ async function createPendingChaseEntry(caseId: string, role: 'TENANT' | 'GUARANT
   });
 }
 
-async function createPendingDraft(caseId: string, role: 'TENANT' | 'GUARANTOR' = 'TENANT') {
+async function createPendingDraft(
+  caseId: string,
+  role: 'TENANT' | 'GUARANTOR' = 'TENANT',
+  consolidatedStage: 'AWAITING_WD3' | null = 'AWAITING_WD3',
+) {
   return prisma.communication.create({
     data: {
       organisationId: ORG_ID,
@@ -165,6 +169,7 @@ async function createPendingDraft(caseId: string, role: 'TENANT' | 'GUARANTOR' =
       subject: 'Reminder',
       bodyMarkdown: 'Hello',
       status: 'AWAITING_APPROVAL',
+      consolidatedStage,
     },
   });
 }
@@ -289,6 +294,27 @@ describe('PromisesService.create — cascade', () => {
     expect(tdAfter.rejectionReason).toBe('promise active');
     const gdAfter = await prisma.communication.findUniqueOrThrow({ where: { id: gd.id } });
     expect(gdAfter.status).toBe('AUTO_REJECTED');
+  });
+
+  it('does NOT auto-reject AI reply drafts (consolidatedStage=null)', async () => {
+    // The very draft that triggered the AI-detected promise affordance
+    // is an acknowledgement reply; it should survive the cascade so the
+    // handler can still approve it.
+    const caseId = await createCase();
+    const chaseDraft = await createPendingDraft(caseId, 'TENANT', 'AWAITING_WD3');
+    const aiReply = await createPendingDraft(caseId, 'TENANT', null);
+    const r = await makeService().create({
+      caseId,
+      promiseDate: new Date('2026-05-25T00:00:00Z'),
+      createdByUserId: USER_ID,
+    });
+    expect(r.draftsAutoRejected).toBe(1);
+
+    const chaseAfter = await prisma.communication.findUniqueOrThrow({ where: { id: chaseDraft.id } });
+    expect(chaseAfter.status).toBe('AUTO_REJECTED');
+
+    const replyAfter = await prisma.communication.findUniqueOrThrow({ where: { id: aiReply.id } });
+    expect(replyAfter.status).toBe('AWAITING_APPROVAL');
   });
 
   it('emits PROMISE_CREATED event with the cascade counts', async () => {

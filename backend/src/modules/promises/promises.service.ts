@@ -153,12 +153,17 @@ export class PromisesService {
         data: { firedAt: now, skippedReason: ChaseSkippedReason.PROMISE_ACTIVE },
       });
 
-      // Auto-reject pending OUTBOUND drafts (both tenant and guarantor
-      // recipientRoles). SENT communications are untouched.
+      // Auto-reject pending OUTBOUND **chase** drafts only (both tenant
+      // and guarantor tracks). Chase drafts carry a consolidatedStage
+      // (set by the digest); AI-generated reply drafts have it null and
+      // are an acknowledgement — per ai-decision-spec they're supposed to
+      // be sent even after the promise is logged. SENT communications
+      // are also untouched.
       const rejectedRes = await tx.communication.updateMany({
         where: {
           caseId: input.caseId,
           direction: CommunicationDirection.OUTBOUND,
+          consolidatedStage: { not: null },
           status: {
             in: [CommunicationStatus.AWAITING_APPROVAL, CommunicationStatus.APPROVED],
           },
