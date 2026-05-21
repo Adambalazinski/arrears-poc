@@ -336,6 +336,8 @@ describe('OutlookInboundPollJob.runOnce — sender match edge cases', () => {
     expect(orphan?.reasonKind).toBe('UNMATCHED_SENDER');
     expect(orphan?.fromAddress).toBe('stranger@example.com');
     expect(orphan?.matchedContactsJson).toBeNull();
+    // Orphan ingest still clears the shared inbox.
+    expect(outlook.markRead).toHaveBeenCalledWith('outlook-msg-orphan');
   });
 
   it('persists an orphan with AMBIGUOUS_SENDER when the email matches across orgs', async () => {
@@ -376,6 +378,7 @@ describe('OutlookInboundPollJob.runOnce — sender match edge cases', () => {
 
     // No Communication created
     expect(await prisma.communication.count()).toBe(0);
+    expect(outlook.markRead).toHaveBeenCalledWith('outlook-msg-ambiguous');
   });
 
   it('persists an orphan when the matched contact has no cases at all', async () => {
@@ -408,6 +411,7 @@ describe('OutlookInboundPollJob.runOnce — sender match edge cases', () => {
     expect(orphan?.matchedContactsJson).toEqual([
       { contactId: 'c-no-case', organisationId: ORG_A },
     ]);
+    expect(outlook.markRead).toHaveBeenCalledWith('outlook-msg-nocase');
   });
 
   it('attaches to a closed case and skips the AI pipeline when no active case exists', async () => {

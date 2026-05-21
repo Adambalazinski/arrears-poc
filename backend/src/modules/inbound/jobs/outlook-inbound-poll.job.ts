@@ -142,6 +142,7 @@ export class OutlookInboundPollJob {
 
       if (match.kind === 'UNMATCHED') {
         await this.persistOrphan(full, OrphanInboundReason.UNMATCHED_SENDER, null);
+        await this.markReadSafely(full.outlookMessageId);
         orphansUnmatched++;
         continue;
       }
@@ -151,6 +152,7 @@ export class OutlookInboundPollJob {
           OrphanInboundReason.AMBIGUOUS_SENDER,
           match.contacts,
         );
+        await this.markReadSafely(full.outlookMessageId);
         orphansAmbiguous++;
         continue;
       }
@@ -173,6 +175,7 @@ export class OutlookInboundPollJob {
         await this.persistOrphan(full, OrphanInboundReason.UNMATCHED_SENDER, [
           { contactId: match.contactId, organisationId: match.organisationId },
         ]);
+        await this.markReadSafely(full.outlookMessageId);
         orphansNoCase++;
         continue;
       }
@@ -210,13 +213,7 @@ export class OutlookInboundPollJob {
       newCommunications++;
       if (attachedToClosed) attachedToClosedCase++;
 
-      try {
-        await this.outlook.markRead(full.outlookMessageId);
-      } catch (err) {
-        this.logger.warn(
-          `outlook-inbound-poll: markRead(${full.outlookMessageId}) failed — ${err instanceof Error ? err.message : err}`,
-        );
-      }
+      await this.markReadSafely(full.outlookMessageId);
 
       // Closed-case attachment is recorded for audit but does not feed
       // the inbound pipeline — architecture flow 3 says "do not invoke AI"
@@ -242,6 +239,24 @@ export class OutlookInboundPollJob {
       duplicatesSkipped,
       cursorAdvancedTo: maxReceivedAt?.toISOString() ?? null,
     };
+  }
+
+  /**
+   * Best-effort markRead. Called after every successful ingest path —
+   * Communication insert and all three orphan paths — so the shared
+   * inbox naturally clears as we process. Failures here must not
+   * propagate: the message is already persisted on our side and the
+   * since-cursor advances, so we'd never retry markRead anyway. Log
+   * and continue.
+   */
+  private async markReadSafely(outlookMessageId: string): Promise<void> {
+    try {
+      await this.outlook.markRead(outlookMessageId);
+    } catch (err) {
+      this.logger.warn(
+        `outlook-inbound-poll: markRead(${outlookMessageId}) failed — ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   private async persistOrphan(

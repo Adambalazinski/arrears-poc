@@ -336,6 +336,65 @@ When `OUTBOUND_MODE=mailhog`:
 
 When `OUTBOUND_MODE=outlook`: real send via Graph. Used only when intentionally testing the send path.
 
+### Setting it up against live Outlook
+
+One-time work by a Microsoft 365 tenant admin (Lofty IT). The codebase is already wired; this section is the operational checklist.
+
+1. **Provision a shared mailbox.** In Exchange admin centre, create a new shared mailbox (e.g. `arrears-test@<tenant>.onmicrosoft.com`). Note the UPN — this is `OUTLOOK_SHARED_MAILBOX`. Don't add user licences; shared mailboxes don't need them.
+
+2. **Register an Azure AD application.** Entra admin centre → App registrations → New registration. Single-tenant. No redirect URI (we use client credentials, not OAuth user flow). Note the **Application (client) ID** (→ `OUTLOOK_CLIENT_ID`) and the **Directory (tenant) ID** (→ `OUTLOOK_TENANT_ID`).
+
+3. **Grant Microsoft Graph application permissions.** On the app's API permissions page, add three Microsoft Graph **Application** permissions (not Delegated):
+
+   - `Mail.Send` — send as the shared mailbox
+   - `Mail.ReadWrite` — list inbox, read full body, mark as read
+   - (`Mail.Read` is implied by `Mail.ReadWrite`; no need to add separately)
+
+   Click **Grant admin consent** after adding. The status column should turn green.
+
+4. **Scope the app to one mailbox via Application Access Policy.** Without this, the app could read/send for every mailbox in the tenant. Run from PowerShell (Exchange Online module, admin):
+
+   ```powershell
+   New-ApplicationAccessPolicy `
+     -AppId "<OUTLOOK_CLIENT_ID>" `
+     -PolicyScopeGroupId "arrears-test@<tenant>.onmicrosoft.com" `
+     -AccessRight RestrictAccess `
+     -Description "Arrears app — scoped to the arrears shared mailbox only"
+   ```
+
+   Verify with `Test-ApplicationAccessPolicy -Identity <mailbox-upn> -AppId <client-id>` — `AccessCheckResult` must be `Granted`.
+
+5. **Create a client secret.** App → Certificates & secrets → New client secret. Copy the **Value** immediately (it's only shown once). This is `OUTLOOK_CLIENT_SECRET`. Set a sensible expiry; rotate before it lapses.
+
+6. **Set env vars.** In `backend/.env` (or AWS Secrets Manager hosted-side):
+
+   ```ini
+   OUTLOOK_TENANT_ID=<from step 2>
+   OUTLOOK_CLIENT_ID=<from step 2>
+   OUTLOOK_CLIENT_SECRET=<from step 5>
+   OUTLOOK_SHARED_MAILBOX=arrears-test@<tenant>.onmicrosoft.com
+   OUTBOUND_MODE=outlook
+   INBOUND_MODE=outlook
+   ```
+
+7. **Smoke test inbound.** Send a test email from any user account to the shared mailbox. Wait up to 5 minutes for the next cron tick, or trigger inline:
+
+   ```sh
+   curl -X POST http://localhost:3001/dev/run-inbound-poll
+   ```
+
+   Expected response shape:
+
+   ```json
+   { "status": "COMPLETED", "processed": 1, "newCommunications": 1, ... }
+   ```
+
+   The message should appear under the matched case's Communications tab, and become read (no longer bold) in the shared inbox.
+
+8. **Smoke test outbound.** Approve any outbound draft from the review queue. Confirm the message lands in the recipient's inbox and in the shared mailbox's **Sent Items** (`saveToSentItems: true`).
+
+If `listInbound` errors with `Access denied`, the application access policy from step 4 hasn't been applied — `Test-ApplicationAccessPolicy` will say so. Policies propagate quickly (seconds) but caches can hold for ~30 min in some tenants.
+
 ## 4. Anthropic API
 
 Direct via `@anthropic-ai/sdk`. Two model uses, both documented in detail in `docs/ai-decision-spec.md`. This section covers the integration mechanics only.

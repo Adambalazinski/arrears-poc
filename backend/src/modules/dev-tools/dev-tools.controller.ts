@@ -19,6 +19,7 @@ import { ChaseTickService } from '../chase/chase-tick.service';
 import { DigestService } from '../chase/digest/digest.service';
 import { todayAt9LondonAsUtc } from '../chase/london-clock';
 import { LWCA_INVOICE_CLIENT, type LwcaInvoiceClient } from '../../integrations/lwca/lwca-invoice.client';
+import { OutlookInboundPollJob } from '../inbound/jobs/outlook-inbound-poll.job';
 import { PromiseExpiryJob } from '../promises/jobs/promise-expiry.job';
 import { PurgeNonRentService } from './purge-non-rent.service';
 import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
@@ -44,6 +45,7 @@ export class DevToolsController {
     private readonly lwcaPoll: LwcaInvoicePollJob,
     private readonly promiseExpiry: PromiseExpiryJob,
     private readonly purgeNonRent: PurgeNonRentService,
+    private readonly inboundPoll: OutlookInboundPollJob,
     @Inject(LWCA_INVOICE_CLIENT) private readonly lwca: LwcaInvoiceClient,
   ) {}
 
@@ -202,6 +204,22 @@ export class DevToolsController {
   async runPromiseExpiry() {
     this.assertEnabled();
     return this.promiseExpiry.runOnce();
+  }
+
+  /**
+   * Run the Outlook inbound poll inline — the local-dev shortcut for the
+   * scheduled @Cron in OutlookInboundPollJob (every 5 min). Useful for
+   * exercising the live inbound path end-to-end without waiting for the
+   * next tick. Honours the same INBOUND_MODE gating as the cron: when
+   * INBOUND_MODE is not "outlook" this still runs (so fixtures-style
+   * smoke tests work), but listInbound will fail unless OUTLOOK_*
+   * credentials are configured.
+   */
+  @Post('run-inbound-poll')
+  @HttpCode(200)
+  async runInboundPoll() {
+    this.assertEnabled();
+    return this.inboundPoll.runOnce();
   }
 
   private assertEnabled(): void {
