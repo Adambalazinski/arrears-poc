@@ -124,6 +124,91 @@ describe('HttpLwcaInvoiceClient', () => {
     expect(out.map((m) => m.charge.lwcaInvoiceId)).toEqual(['inv-a', 'inv-b']);
   });
 
+  it('rent-only smoke: list returns mixed types, only Rent invoices survive the full pipeline', async () => {
+    // Mirrors the production failure mode that motivated the rent-only
+    // filter: LWCA's list endpoint returns invoices WITHOUT lineItems, and
+    // its single-invoice endpoint returns lineItems WITHOUT description.
+    // The client must (a) hit the list, (b) hydrate each via per-invoice
+    // fetch, (c) merge so description survives, (d) drop non-Rent.
+    //
+    // Run with: pnpm --filter backend exec vitest run -t "rent-only smoke"
+    const summaries: Record<string, unknown> = {
+      'inv-rent': {
+        id: 'inv-rent',
+        organisationId: 'org-1',
+        grossAmount: 100000,
+        remainAmount: 100000,
+        dueDate: '2026-04-01',
+        invoiceDate: '2026-03-15',
+        status: 'UNPAID',
+        paymentCycleType: 'MONTHLY',
+        tenancyId: 't-rent',
+        description: 'Rent 04/2026',
+      },
+      'inv-deposit': {
+        id: 'inv-deposit',
+        organisationId: 'org-1',
+        grossAmount: 50000,
+        remainAmount: 50000,
+        dueDate: '2026-04-01',
+        invoiceDate: '2026-03-15',
+        status: 'UNPAID',
+        paymentCycleType: 'SINGLE',
+        tenancyId: 't-rent',
+        description: 'Security deposit',
+      },
+      'inv-mixed': {
+        id: 'inv-mixed',
+        organisationId: 'org-1',
+        grossAmount: 150000,
+        remainAmount: 150000,
+        dueDate: '2026-05-01',
+        invoiceDate: '2026-04-15',
+        status: 'UNPAID',
+        paymentCycleType: 'MONTHLY',
+        tenancyId: 't-mixed',
+        description: 'Rent + council tax 05/2026',
+      },
+    };
+    const lineItemsByInvoice: Record<string, Array<{ type: string }>> = {
+      'inv-rent': [{ type: 'Rent' }],
+      'inv-deposit': [{ type: 'Security Deposit' }],
+      'inv-mixed': [{ type: 'Council Tax' }, { type: 'Rent' }],
+    };
+
+    mockFetch(async (url) => {
+      if (isListCall(url)) {
+        return new Response(
+          JSON.stringify({ content: Object.values(summaries), totalPages: 1 }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      const id = url.split('/').pop()!.split('?')[0]!;
+      const summary = summaries[id]!;
+      // Single-invoice response shape: lineItems present, description
+      // dropped — exactly what stage does.
+      const { description: _, ...rest } = summary as { description?: string };
+      return new Response(
+        JSON.stringify({ ...rest, lineItems: lineItemsByInvoice[id] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    const client = new HttpLwcaInvoiceClient(passthroughCognito());
+    const out = await client.listArrears('org-1');
+
+    const survivors = out.map((m) => m.charge.lwcaInvoiceId).sort();
+    expect(survivors).toEqual(['inv-mixed', 'inv-rent']);
+    // Deposit must not appear under any circumstance.
+    expect(survivors).not.toContain('inv-deposit');
+    // Descriptions must survive the merge — they come from the list call,
+    // not the single-invoice fetch.
+    const rent = out.find((m) => m.charge.lwcaInvoiceId === 'inv-rent')!;
+    expect(rent.charge.lastKnownDescription).toBe('Rent 04/2026');
+    const mixed = out.find((m) => m.charge.lwcaInvoiceId === 'inv-mixed')!;
+    expect(mixed.charge.lastKnownDescription).toBe('Rent + council tax 05/2026');
+  });
+
   it('probe: ok=true on 200 + JSON content-type, ok=false on 401', async () => {
     let nextStatus = 200;
     mockFetch(async () =>
