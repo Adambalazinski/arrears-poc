@@ -96,6 +96,7 @@ Behind `DEV_TOOLS_ENABLED=true` in `backend/.env` (default). All require an auth
 | Endpoint                                        | Purpose                                                                 |
 | ----------------------------------------------- | ----------------------------------------------------------------------- |
 | `POST /dev/force-sync/:orgId`                   | Run LWCA poll inline — pulls invoices + opens/closes cases now          |
+| `POST /dev/reset-demo/:orgId`                   | Wipe org's per-case derived state (cases, charges, comms, events…) then re-sync. Keeps creds + config + contacts + tenancies. Also wired to the **Reset demo** button on the cases list. |
 | `POST /dev/purge-non-rent/:orgId`               | One-shot cleanup of historical non-rent Charge rows                     |
 | `GET  /dev/inspect-lwca/:orgId`                 | Dump the raw LWCA arrears list + per-invoice line items for debugging   |
 | `POST /dev/run-inbound-poll`                    | Run the Outlook inbound poll inline (skip the 5-min cron)               |

@@ -201,6 +201,25 @@ export const syncOrg = (orgId: string) =>
     method: 'POST',
   });
 
+export interface ResetDemoResult {
+  organisationId: string;
+  deleted: Record<string, number>;
+  resync: {
+    organisationId: string;
+    casesOpened: number;
+    casesClosed: number;
+    processed: number;
+    created: number;
+    updated: number;
+    status: string;
+  };
+}
+
+export const resetDemo = (orgId: string) =>
+  apiJson<ResetDemoResult>(`/api/dev/reset-demo/${encodeURIComponent(orgId)}`, {
+    method: 'POST',
+  });
+
 export const refreshCase = (id: string) =>
   apiJson<unknown>(`/api/cases/${encodeURIComponent(id)}/refresh`, {
     method: 'POST',

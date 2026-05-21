@@ -9,6 +9,7 @@ import {
   maxWorkingDaysOverdue,
   mostSevereStage,
   propertyLine,
+  resetDemo,
   syncOrg,
   type CaseRowListed,
   type CaseStatus,
@@ -37,6 +38,13 @@ export function CasesListPage(): JSX.Element {
 
   const sync = useMutation({
     mutationFn: () => syncOrg(orgId),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['cases', orgId] });
+    },
+  });
+
+  const reset = useMutation({
+    mutationFn: () => resetDemo(orgId),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['cases', orgId] });
     },
@@ -92,8 +100,22 @@ export function CasesListPage(): JSX.Element {
           <span className="flex-1" />
           <button
             type="button"
+            className="rounded border border-destructive text-destructive px-3 py-1.5 text-sm disabled:opacity-50"
+            disabled={reset.isPending || sync.isPending}
+            title="Wipe all cases / charges / communications / events for this org, then re-sync. Credentials and upstream caches are preserved."
+            onClick={() => {
+              const ok = window.confirm(
+                'Reset demo for this org?\n\nThis deletes every case, charge, communication, review-queue item and timeline event for the org, then re-syncs from upstream. Credentials, config, contacts and tenancies are preserved.\n\nNo undo.',
+              );
+              if (ok) reset.mutate();
+            }}
+          >
+            {reset.isPending ? 'Resetting…' : 'Reset demo'}
+          </button>
+          <button
+            type="button"
             className="rounded bg-primary text-primary-foreground px-3 py-1.5 text-sm disabled:opacity-50"
-            disabled={sync.isPending}
+            disabled={sync.isPending || reset.isPending}
             onClick={() => sync.mutate()}
           >
             {sync.isPending ? 'Syncing…' : 'Sync now'}
@@ -102,6 +124,22 @@ export function CasesListPage(): JSX.Element {
         {sync.error && (
           <p className="text-destructive text-sm">
             Sync failed: {sync.error instanceof Error ? sync.error.message : 'unknown'}
+          </p>
+        )}
+        {reset.error && (
+          <p className="text-destructive text-sm">
+            Reset failed: {reset.error instanceof Error ? reset.error.message : 'unknown'}
+          </p>
+        )}
+        {reset.data && (
+          <p className="text-muted-foreground text-sm">
+            Reset done — deleted{' '}
+            {Object.entries(reset.data.deleted)
+              .filter(([, n]) => n > 0)
+              .map(([k, n]) => `${n} ${k}`)
+              .join(', ') || 'nothing'}
+            ; re-sync opened {reset.data.resync.casesOpened} case
+            {reset.data.resync.casesOpened === 1 ? '' : 's'}.
           </p>
         )}
 

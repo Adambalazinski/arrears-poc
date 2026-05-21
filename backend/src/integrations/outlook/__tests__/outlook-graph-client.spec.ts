@@ -137,9 +137,29 @@ describe('OutlookGraphClient.sendMail', () => {
 
   it('refuses to initialise without OUTLOOK_* env vars', async () => {
     vi.unstubAllEnvs();
-    const client = new OutlookGraphClient();
-    await expect(
-      client.sendMail({ toAddress: 't', subject: 's', bodyMarkdown: 'b' }),
-    ).rejects.toThrow(/OUTLOOK_TENANT_ID env var is required/);
+    // unstubAllEnvs only undoes vitest stubs, not real env from .env.
+    // Force a known-empty state for the duration of this assertion,
+    // then restore so we don't poison other tests in the file.
+    const saved = {
+      tenant: process.env.OUTLOOK_TENANT_ID,
+      client: process.env.OUTLOOK_CLIENT_ID,
+      secret: process.env.OUTLOOK_CLIENT_SECRET,
+      mailbox: process.env.OUTLOOK_SHARED_MAILBOX,
+    };
+    delete process.env.OUTLOOK_TENANT_ID;
+    delete process.env.OUTLOOK_CLIENT_ID;
+    delete process.env.OUTLOOK_CLIENT_SECRET;
+    delete process.env.OUTLOOK_SHARED_MAILBOX;
+    try {
+      const client = new OutlookGraphClient();
+      await expect(
+        client.sendMail({ toAddress: 't', subject: 's', bodyMarkdown: 'b' }),
+      ).rejects.toThrow(/OUTLOOK_TENANT_ID env var is required/);
+    } finally {
+      if (saved.tenant) process.env.OUTLOOK_TENANT_ID = saved.tenant;
+      if (saved.client) process.env.OUTLOOK_CLIENT_ID = saved.client;
+      if (saved.secret) process.env.OUTLOOK_CLIENT_SECRET = saved.secret;
+      if (saved.mailbox) process.env.OUTLOOK_SHARED_MAILBOX = saved.mailbox;
+    }
   });
 });

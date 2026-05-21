@@ -9,6 +9,7 @@ import { InboundModule } from '../inbound/inbound.module';
 import { PromisesModule } from '../promises/promises.module';
 import { DevToolsController } from './dev-tools.controller';
 import { PurgeNonRentService } from './purge-non-rent.service';
+import { ResetDemoService } from './reset-demo.service';
 import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
 
 @Module({
@@ -23,6 +24,6 @@ import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
     LwcaModule,
   ],
   controllers: [DevToolsController],
-  providers: [SeedFixtureEmailsService, PurgeNonRentService],
+  providers: [SeedFixtureEmailsService, PurgeNonRentService, ResetDemoService],
 })
 export class DevToolsModule {}

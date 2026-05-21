@@ -22,6 +22,7 @@ import { LWCA_INVOICE_CLIENT, type LwcaInvoiceClient } from '../../integrations/
 import { OutlookInboundPollJob } from '../inbound/jobs/outlook-inbound-poll.job';
 import { PromiseExpiryJob } from '../promises/jobs/promise-expiry.job';
 import { PurgeNonRentService } from './purge-non-rent.service';
+import { ResetDemoService } from './reset-demo.service';
 import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
 import { Inject } from '@nestjs/common';
 
@@ -45,6 +46,7 @@ export class DevToolsController {
     private readonly lwcaPoll: LwcaInvoicePollJob,
     private readonly promiseExpiry: PromiseExpiryJob,
     private readonly purgeNonRent: PurgeNonRentService,
+    private readonly resetDemo: ResetDemoService,
     private readonly inboundPoll: OutlookInboundPollJob,
     @Inject(LWCA_INVOICE_CLIENT) private readonly lwca: LwcaInvoiceClient,
   ) {}
@@ -73,6 +75,18 @@ export class DevToolsController {
   async purgeNonRentOrg(@Param('orgId') orgId: string) {
     this.assertEnabled();
     return this.purgeNonRent.runForOrg(orgId);
+  }
+
+  /**
+   * Wipe all per-case derived state for one org and re-sync from
+   * upstream. Used to replay the demo flow from a clean slate without
+   * losing credentials / upstream caches.
+   */
+  @Post('reset-demo/:orgId')
+  @HttpCode(200)
+  async resetDemoOrg(@Param('orgId') orgId: string) {
+    this.assertEnabled();
+    return this.resetDemo.runForOrg(orgId);
   }
 
   /**
