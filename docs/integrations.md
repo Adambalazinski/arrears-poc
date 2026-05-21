@@ -340,6 +340,31 @@ When `OUTBOUND_MODE=outlook`: real send via Graph. Used only when intentionally 
 
 One-time work by a Microsoft 365 tenant admin (Lofty IT). The codebase is already wired; this section is the operational checklist.
 
+> **Heads-up: personal `outlook.com` / `hotmail.com` / `live.com` mailboxes will not work.** The integration uses Graph **application credentials** (`ClientSecretCredential`), which only work against mailboxes in an Entra ID tenant. Personal Microsoft accounts live in the consumer cloud — no tenant ID, no admin consent, no Application Access Policy. If you don't already have an M365 tenant, see the quick-start immediately below.
+
+#### Quick-start: free Microsoft 365 Developer tenant
+
+For dev / demo work with no existing M365 subscription. Production should target the real Lofty tenant; this path is for evaluating the integration end-to-end at zero cost.
+
+1. **Sign up.** https://developer.microsoft.com/microsoft-365/dev-program → **Join**. Free, signed-in with any Microsoft account (the dev-program identity is separate from the tenant it provisions). Pick an immediate setup, not the deferred / configurable one.
+
+2. **Provision a sandbox tenant.** During signup you choose:
+
+   - **Instant sandbox** (recommended): pre-populated with ~25 fake users, Teams data, SharePoint sites — handy if you want to test sender-matching against multiple Contacts later.
+   - **Configurable sandbox**: empty tenant; you create users yourself.
+
+   Pick a tenant prefix (becomes `<prefix>.onmicrosoft.com`) and an admin username + password. Save both — there's no recovery.
+
+3. **Wait for provisioning.** Usually 1–5 minutes. The dashboard shows when the tenant is ready and surfaces the admin UPN (e.g. `admin@<prefix>.onmicrosoft.com`) and the tenant domain.
+
+4. **Sign in to the admin centre.** https://admin.microsoft.com using the admin UPN. You're now in your own M365 tenant with full admin rights. From here on, follow the main setup below.
+
+5. **Renewal.** Developer tenants expire 90 days after the last "qualifying activity" — keep one of these on a recurring reminder: sign into the admin centre, send a Graph API call against the tenant, or use a Visual Studio Code extension that exercises it. Otherwise the tenant deletes (no recovery) and you'll need to start over.
+
+The rest of the setup steps below work identically against a Developer tenant and against Lofty's production tenant — only the values change.
+
+#### Main setup
+
 1. **Provision a shared mailbox.** In Exchange admin centre, create a new shared mailbox (e.g. `arrears-test@<tenant>.onmicrosoft.com`). Note the UPN — this is `OUTLOOK_SHARED_MAILBOX`. Don't add user licences; shared mailboxes don't need them.
 
 2. **Register an Azure AD application.** Entra admin centre → App registrations → New registration. Single-tenant. No redirect URI (we use client credentials, not OAuth user flow). Note the **Application (client) ID** (→ `OUTLOOK_CLIENT_ID`) and the **Directory (tenant) ID** (→ `OUTLOOK_TENANT_ID`).
