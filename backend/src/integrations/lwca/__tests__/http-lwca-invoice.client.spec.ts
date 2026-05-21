@@ -25,6 +25,11 @@ function mockFetch(handler: (url: string, init: RequestInit) => Promise<Response
   vi.stubGlobal('fetch', vi.fn(handler));
 }
 
+/** True for the list endpoint, false for /v1/api/invoice/{id} hydration calls. */
+function isListCall(url: string): boolean {
+  return /\/v1\/api\/invoice\?/.test(url);
+}
+
 describe('HttpLwcaInvoiceClient', () => {
   it('refuses to instantiate against a production-like base URL', () => {
     process.env.LWCA_STAGE_BASE_URL = 'https://uk.loftyworks.com';
@@ -33,34 +38,32 @@ describe('HttpLwcaInvoiceClient', () => {
     );
   });
 
-  it('listArrears: calls /v1/api/invoice with the arrears filter + bearer token', async () => {
+  it('listArrears: calls /v1/api/invoice with the arrears filter + bearer token, then hydrates lineItems per invoice', async () => {
     const calls: string[] = [];
+    const summary = {
+      id: 'inv-1',
+      organisationId: 'org-1',
+      grossAmount: 100,
+      remainAmount: 100,
+      dueDate: '2026-04-01',
+      invoiceDate: '2026-03-15',
+      status: 'UNPAID',
+      paymentCycleType: 'MONTHLY',
+      tenancyId: 't-1',
+      property: { propertyId: 'p-1' },
+    };
     mockFetch(async (url, init) => {
       calls.push(url);
       expect((init.headers as Record<string, string>).Authorization).toBe(
         'Bearer stage-access-token',
       );
-      return new Response(
-        JSON.stringify({
-          content: [
-            {
-              id: 'inv-1',
-              organisationId: 'org-1',
-              grossAmount: 100,
-              remainAmount: 100,
-              dueDate: '2026-04-01',
-              invoiceDate: '2026-03-15',
-              status: 'UNPAID',
-              paymentCycleType: 'MONTHLY',
-              tenancyId: 't-1',
-              property: { propertyId: 'p-1' },
-              lineItems: [{ type: 'Rent' }],
-            },
-          ],
-          totalPages: 1,
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
+      const body = isListCall(url)
+        ? { content: [summary], totalPages: 1 }
+        : { ...summary, lineItems: [{ type: 'Rent' }] };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     });
 
     const client = new HttpLwcaInvoiceClient(passthroughCognito());
@@ -73,44 +76,47 @@ describe('HttpLwcaInvoiceClient', () => {
     expect(calls[0]).toContain('type=OUTBOUND');
     expect(calls[0]).toContain('lineItemType=Rent');
     expect(calls[0]).toContain('page=1');
+    expect(calls[1]).toContain('/v1/api/invoice/inv-1');
   });
 
   it('listArrears: paginates until totalPages is exhausted', async () => {
-    const pages = [
-      [
-        {
-          id: 'inv-a',
-          organisationId: 'org-1',
-          grossAmount: 100,
-          remainAmount: 100,
-          dueDate: '2026-04-01',
-          invoiceDate: '2026-03-15',
-          status: 'UNPAID',
-          paymentCycleType: 'MONTHLY',
-          tenancyId: 't-1',
-          lineItems: [{ type: 'Rent' }],
-        },
-      ],
-      [
-        {
-          id: 'inv-b',
-          organisationId: 'org-1',
-          grossAmount: 100,
-          remainAmount: 100,
-          dueDate: '2026-04-08',
-          invoiceDate: '2026-03-22',
-          status: 'UNPAID',
-          paymentCycleType: 'MONTHLY',
-          tenancyId: 't-1',
-          lineItems: [{ type: 'Rent' }],
-        },
-      ],
+    const summaries = [
+      {
+        id: 'inv-a',
+        organisationId: 'org-1',
+        grossAmount: 100,
+        remainAmount: 100,
+        dueDate: '2026-04-01',
+        invoiceDate: '2026-03-15',
+        status: 'UNPAID',
+        paymentCycleType: 'MONTHLY',
+        tenancyId: 't-1',
+      },
+      {
+        id: 'inv-b',
+        organisationId: 'org-1',
+        grossAmount: 100,
+        remainAmount: 100,
+        dueDate: '2026-04-08',
+        invoiceDate: '2026-03-22',
+        status: 'UNPAID',
+        paymentCycleType: 'MONTHLY',
+        tenancyId: 't-1',
+      },
     ];
     let page = 0;
-    mockFetch(async () => {
-      const body = JSON.stringify({ content: pages[page]!, totalPages: 2 });
-      page++;
-      return new Response(body, { status: 200 });
+    mockFetch(async (url) => {
+      if (isListCall(url)) {
+        const body = JSON.stringify({ content: [summaries[page]!], totalPages: 2 });
+        page++;
+        return new Response(body, { status: 200 });
+      }
+      const id = url.split('/').pop()!.split('?')[0]!;
+      const summary = summaries.find((s) => s.id === id)!;
+      return new Response(
+        JSON.stringify({ ...summary, lineItems: [{ type: 'Rent' }] }),
+        { status: 200 },
+      );
     });
 
     const client = new HttpLwcaInvoiceClient(passthroughCognito());

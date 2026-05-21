@@ -5,7 +5,7 @@ import type {
   LwcaProbeOutcome,
 } from './lwca-invoice.client';
 import { LwcaInvoiceMapper, type MappedLwcaInvoice } from './lwca-invoice.mapper';
-import { LwcaPagedInvoicesSchema, type LwcaInvoice } from './lwca-invoice.types';
+import { LwcaInvoiceSchema, LwcaPagedInvoicesSchema, type LwcaInvoice } from './lwca-invoice.types';
 import { normaliseStagePage } from './lwca-stage-shape';
 
 const ARREARS_QS = new URLSearchParams({
@@ -48,19 +48,42 @@ export class HttpLwcaInvoiceClient implements LwcaInvoiceClient {
       // so pages are 1-indexed against the API even though the response's
       // `number` field is the same value.
       let page = 1;
-      const all: LwcaInvoice[] = [];
+      const summaries: LwcaInvoice[] = [];
       while (true) {
         const qs = new URLSearchParams(ARREARS_QS);
         qs.set('page', String(page));
         const body = await this.get(qs, token);
         const parsed = LwcaPagedInvoicesSchema.parse(normaliseStagePage(body));
-        all.push(...parsed.content);
+        summaries.push(...parsed.content);
         const totalPages = parsed.totalPages ?? 1;
         if (page >= totalPages || parsed.content.length === 0) break;
         page += 1;
       }
-      return all;
+      // The list endpoint returns `description` but no `lineItems`; the
+      // single-invoice endpoint returns `lineItems` but no `description`.
+      // We need both — description for display, lineItems to tell rent
+      // apart from deposit / council-tax / etc. Hydrate each summary
+      // with the full record's lineItems. N+1 requests, but POC
+      // workspaces are small (<50 invoices).
+      return Promise.all(
+        summaries.map(async (inv) => {
+          const full = await this.getInvoice(inv.id, token);
+          return { ...inv, lineItems: full.lineItems };
+        }),
+      );
     });
+  }
+
+  private async getInvoice(invoiceId: string, accessToken: string): Promise<LwcaInvoice> {
+    const url = `${this.baseUrl}/v1/api/invoice/${encodeURIComponent(invoiceId)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new LwcaHttpError(res.status, `LWCA GET /invoice/${invoiceId} -> ${res.status}: ${body}`);
+    }
+    return LwcaInvoiceSchema.parse(await res.json());
   }
 
   async probe(_organisationId: string, accessToken: string): Promise<LwcaProbeOutcome> {
