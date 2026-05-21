@@ -263,7 +263,16 @@ model Charge {
   // working-day count since dueDate, recomputed on each cadence tick (informational)
   workingDaysOverdue    Int        @default(0)
 
-  // Did we step the stage back due to partial-payment rule? (post-MVP)
+  // Partial-payment cadence model (R8.2 post-MVP).
+  // `cadenceCycle` increments whenever a partial payment resets/steps-back
+  // the cadence. ChaseScheduleEntry rows are tagged with the cycle they
+  // belong to, so the unique index can let the same (stage, role) re-fire
+  // in a fresh cycle without colliding with the entry from the previous
+  // cycle. `cadenceAnchorAt`, when set, overrides `dueDate` as the
+  // working-day-overdue anchor — used to position the charge at the
+  // intended stage right after a partial payment.
+  cadenceCycle       Int       @default(0)
+  cadenceAnchorAt    DateTime?
   stageSteppedBackAt DateTime?
   stageResetAt       DateTime?
 
@@ -318,10 +327,14 @@ model ChaseScheduleEntry {
   dueAt         DateTime // computed in UTC from dueDate + working-day offset, anchored at 09:00 Europe/London
   firedAt       DateTime?
   skippedReason ChaseSkippedReason? // when fired-but-not-acted (e.g. breathing space, already resolved)
+  // The Charge.cadenceCycle value at the time this entry was created. The
+  // unique index includes it so a partial-payment-driven cycle bump lets
+  // the same (stage, role) fire fresh in the new cycle.
+  cadenceCycle  Int           @default(0)
 
   createdAt DateTime @default(now())
 
-  @@unique([chargeId, stage, recipientRole]) // idempotency: re-running scheduler can't double-create — one entry per (charge, stage, recipient)
+  @@unique([chargeId, cadenceCycle, stage, recipientRole]) // idempotency: re-running scheduler within a cycle can't double-create
   @@index([dueAt, firedAt])
   @@map("chase_schedule_entry")
 }
@@ -378,6 +391,8 @@ enum CaseEventKind {
   PROMISE_FULFILLED
   PROMISE_BROKEN
   PROMISE_CANCELLED
+  CHARGE_CADENCE_RESET
+  CHARGE_CADENCE_STEPPED_BACK
 }
 
 // ---------- Communications ----------

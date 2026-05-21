@@ -1,5 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { BankHolidaysLoader } from '../../../common/working-day/bank-holidays.loader';
+import type { GovUkBankHolidays } from '../../../common/working-day/types';
+import { WorkingDayService } from '../../../common/working-day/working-day.service';
 import type { LwcaChargeUpsert } from '../../../integrations/lwca/lwca-invoice.mapper';
 import type { PrismaService } from '../../../integrations/prisma/prisma.service';
 import { ChargesService } from '../charges.service';
@@ -61,8 +64,19 @@ async function wipeOrg(): Promise<void> {
   await prisma.organisation.deleteMany({ where: { id: ORG_ID } });
 }
 
+const FIXTURE_CALENDAR: GovUkBankHolidays = {
+  'england-and-wales': { division: 'england-and-wales', events: [] },
+};
+
+function makeWorkingDay(): WorkingDayService {
+  const svc = new WorkingDayService({} as BankHolidaysLoader);
+  // Empty calendar = weekends only, no bank holidays.
+  svc.applyCalendar(FIXTURE_CALENDAR);
+  return svc;
+}
+
 function makeService(): ChargesService {
-  return new ChargesService(prisma as unknown as PrismaService);
+  return new ChargesService(prisma as unknown as PrismaService, makeWorkingDay());
 }
 
 function lwca(overrides: Partial<LwcaChargeUpsert> = {}): LwcaChargeUpsert {

@@ -94,7 +94,13 @@ export class ChaseTickService {
           },
         },
         chaseScheduleEntries: {
-          select: { stage: true, recipientRole: true, firedAt: true, skippedReason: true },
+          select: {
+            stage: true,
+            recipientRole: true,
+            firedAt: true,
+            skippedReason: true,
+            cadenceCycle: true,
+          },
         },
       },
     });
@@ -112,11 +118,21 @@ export class ChaseTickService {
         );
         continue;
       }
-      const wd = this.workingDay.workingDaysOverdue(c.dueDate, tickNow);
+      // R8.2: cadenceAnchorAt overrides dueDate when set (after a
+      // partial-payment reset/step-back), so the cadence "clock" can be
+      // moved without touching the upstream invoice date.
+      const wdAnchor = c.cadenceAnchorAt ?? c.dueDate;
+      const wd = this.workingDay.workingDaysOverdue(wdAnchor, tickNow);
       const thresholds = thresholdsFromConfig(config as OrganisationConfig);
       const crossed = stagesCrossed(wd, thresholds);
+      // Only the current cycle's entries count for uniqueness checks and
+      // currentStage computation. Entries from previous cycles (older
+      // partial-payment cadences) are audit-only.
+      const currentCycleEntries = c.chaseScheduleEntries.filter(
+        (e) => e.cadenceCycle === c.cadenceCycle,
+      );
       const existingByKey = new Map(
-        c.chaseScheduleEntries.map((e) => [`${e.stage}|${e.recipientRole}`, e]),
+        currentCycleEntries.map((e) => [`${e.stage}|${e.recipientRole}`, e]),
       );
       const breathingSpace = c.case.breathingSpaceActive;
       const promiseActive = c.case.promises.length > 0;
@@ -139,7 +155,7 @@ export class ChaseTickService {
             : breathingSpace
               ? ChaseSkippedReason.BREATHING_SPACE_ACTIVE
               : null;
-          await this.createEntry(c.caseId, c.id, stage, RecipientRole.TENANT, dueAt, skip);
+          await this.createEntry(c.caseId, c.id, stage, RecipientRole.TENANT, dueAt, skip, c.cadenceCycle);
           if (skip) entriesSkipped++;
           else entriesCreated++;
         }
@@ -148,18 +164,19 @@ export class ChaseTickService {
           !existingByKey.has(`${stage}|${RecipientRole.GUARANTOR}`)
         ) {
           const skip = promiseActive ? ChaseSkippedReason.PROMISE_ACTIVE : null;
-          await this.createEntry(c.caseId, c.id, stage, RecipientRole.GUARANTOR, dueAt, skip);
+          await this.createEntry(c.caseId, c.id, stage, RecipientRole.GUARANTOR, dueAt, skip, c.cadenceCycle);
           if (skip) entriesSkipped++;
           else entriesCreated++;
         }
       }
 
-      // Decide the new currentStage from the set of entries (existing +
-      // freshly created). Highest AWAITING_* among unfired entries wins;
-      // if none unfired, highest *_SENT/NOTIFIED of fired entries; else
-      // NOT_DUE.
+      // Decide the new currentStage from the set of entries in the
+      // current cycle (existing + freshly created). Highest AWAITING_*
+      // among unfired entries wins; if none unfired, highest
+      // *_SENT/NOTIFIED of fired entries; else NOT_DUE. Entries from
+      // previous cycles don't contribute.
       const refreshed = await this.prisma.chaseScheduleEntry.findMany({
-        where: { chargeId: c.id },
+        where: { chargeId: c.id, cadenceCycle: c.cadenceCycle },
         select: { stage: true, firedAt: true, skippedReason: true },
       });
       const computed = computeCurrentStage(refreshed);
@@ -208,6 +225,7 @@ export class ChaseTickService {
     recipientRole: RecipientRole,
     dueAt: Date,
     skippedReason: ChaseSkippedReason | null,
+    cadenceCycle: number,
   ): Promise<void> {
     const data: Prisma.ChaseScheduleEntryCreateInput = {
       case: { connect: { id: caseId } },
@@ -215,6 +233,7 @@ export class ChaseTickService {
       stage,
       recipientRole,
       dueAt,
+      cadenceCycle,
       // Entries that come due during a paused state (R4.5 breathing space,
       // R10 active promise) are skipped at creation. firedAt is set so
       // the digest job's `firedAt=null` filter ignores them, just like

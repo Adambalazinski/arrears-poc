@@ -83,6 +83,31 @@ export class WorkingDayService implements OnModuleInit {
     return ymdToUtcDate(cur);
   }
 
+  /**
+   * Subtract N working days. `n === 0` returns the same date when it's a
+   * working day, otherwise the previous working day. The result is at
+   * 00:00 UTC like `addWorkingDays`. Used by R8.2 to place a charge's
+   * cadence anchor far enough in the past that the next tick re-discovers
+   * the intended step-back stage.
+   */
+  subtractWorkingDays(start: Date, n: number): Date {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error(`subtractWorkingDays: n must be a non-negative integer (got ${n})`);
+    }
+    this.assertReady();
+    let cur = toLondonYmd(start);
+    if (n === 0) {
+      while (!this.isWorkingDayYmd(cur)) cur = subtractOneDayYmd(cur);
+      return ymdToUtcDate(cur);
+    }
+    let count = 0;
+    while (count < n) {
+      cur = subtractOneDayYmd(cur);
+      if (this.isWorkingDayYmd(cur)) count++;
+    }
+    return ymdToUtcDate(cur);
+  }
+
   /** Working days strictly after `start` up to and including `end`. */
   workingDaysBetween(start: Date, end: Date): number {
     this.assertReady();
@@ -151,6 +176,12 @@ function parseYmd(ymd: string): { y: number; m: number; d: number } {
 function addOneDayYmd(ymd: string): string {
   const { y, m, d } = parseYmd(ymd);
   const dt = new Date(Date.UTC(y, m - 1, d + 1));
+  return formatUtcAsYmd(dt);
+}
+
+function subtractOneDayYmd(ymd: string): string {
+  const { y, m, d } = parseYmd(ymd);
+  const dt = new Date(Date.UTC(y, m - 1, d - 1));
   return formatUtcAsYmd(dt);
 }
 

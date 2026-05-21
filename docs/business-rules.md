@@ -159,7 +159,13 @@ Both produce the same downstream state.
 - Recomputes case balance.
 - Emits `CHARGE_PARTIALLY_PAID` event with the delta.
 
-**R8.2.** Cadence stage does NOT step back in POC. The BRD specifies that ≥90%-of-balance payment resets to WD3 and <90% steps back one stage, but this is deferred to a post-MVP slice. Until then, cadence proceeds on the remaining balance as if the partial payment hadn't changed the stage.
+**R8.2.** Cadence stage steps back on partial payment. Driven by the cumulative paid fraction `(gross − remain) / gross`:
+
+- **≥ 90% paid (reset to WD3).** The charge's `cadenceCycle` increments, `cadenceAnchorAt` is set to now, `currentStage` resets to `NOT_DUE`, and a `CHARGE_CADENCE_RESET` event is emitted. Working-day-overdue is recomputed against the new anchor, so the cooperative payer gets a 3-WD grace window before any new chase fires.
+- **< 90% paid (step back one stage).** From AWAITING_WD14/WD14_NOTIFIED the target is AWAITING_WD8; from AWAITING_WD8/WD8_SENT it's AWAITING_WD5; from AWAITING_WD5/WD5_SENT it's AWAITING_WD3. The cycle increments, `cadenceAnchorAt` is set to `now − (target stage WD) working days`, `currentStage` resets to `NOT_DUE`, and a `CHARGE_CADENCE_STEPPED_BACK` event is emitted. The next chase tick re-discovers the target stage and creates a fresh `ChaseScheduleEntry` for it (now allowed because the unique index includes `cadenceCycle`).
+- **Floor (AWAITING_WD3 / WD3_SENT) or pre-cadence (NOT_DUE / RESOLVED).** No cadence change. The `CHARGE_PARTIALLY_PAID` event still records the payment.
+
+`ChaseScheduleEntry` uniqueness is keyed on `(chargeId, cadenceCycle, stage, recipientRole)`. Entries from previous cycles remain in the DB for audit but are ignored when computing `currentStage` (the cycle filter excludes them).
 
 **R8.3.** The S8 flag is reevaluated on every partial payment (R6).
 
@@ -167,9 +173,9 @@ Both produce the same downstream state.
 
 ### Example
 
-Charge INV-A: gross £1,200, remain £1,200, status `UNPAID`, stage AWAITING_WD5. Tenant pays £700.
+Charge INV-A: gross £1,200, remain £1,200, status `UNPAID`, stage AWAITING_WD8. Tenant pays £700.
 
-Next poll: status `PARTIALLY_PAID`, remain £500. Event emitted. Case balance reduces. Stage stays AWAITING_WD5. Next digest acknowledges receipt and shows £500 still owing.
+Next poll: status `PARTIALLY_PAID`, remain £500. Cumulative paid = £700 / £1,200 = 58% (< 90%) → step back from AWAITING_WD8 → AWAITING_WD5. `cadenceCycle` becomes 1, `cadenceAnchorAt` is set to `today − 5 working days`, `currentStage` resets to `NOT_DUE`. Next chase tick sees wd-overdue=5 against the new anchor and creates an AWAITING_WD5 entry tagged `cadenceCycle=1`. The next digest sends a WD5-template message acknowledging the £700 receipt and showing £500 still owing.
 
 ## Rule R9 — Balance-changed-since-draft
 
@@ -255,7 +261,6 @@ Mustache-style rendering (no JS execution, no helpers beyond basic iteration and
 Pinned for clarity, will be added in later slices:
 
 - **Promise workflow** — payment promises detected by AI or logged manually, with one-active-per-case, two-per-cycle, 15-day-max-window, broken-promise template, etc.
-- **Partial payment stage step-back** — ≥90% resets to WD3, <90% steps back one stage, per R8.2 deferral
 - **Guarantor parallel cadence** — guarantor data flows through (contacts visible on case), but no parallel chase events fire
 - **WhatsApp** — communication channel reserved in schema, not built
 - **Cross-case history** — clean slate per case (R10 ish): every new case ignores patterns from prior closed cases

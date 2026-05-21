@@ -1,5 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { BankHolidaysLoader } from '../../../../common/working-day/bank-holidays.loader';
+import type { GovUkBankHolidays } from '../../../../common/working-day/types';
+import { WorkingDayService } from '../../../../common/working-day/working-day.service';
 import { FixtureLwcaInvoiceClient } from '../../../../integrations/lwca/fixture-lwca-invoice.client';
 import type { LwcaInvoiceClient } from '../../../../integrations/lwca/lwca-invoice.client';
 import { FixtureRentancyClient } from '../../../../integrations/rentancy/fixture-rentancy.client';
@@ -10,6 +13,16 @@ import { CasesService } from '../../cases.service';
 import { S8EvaluationService } from '../../s8-evaluation.service';
 import { LwcaInvoicePollJob } from '../lwca-invoice-poll.job';
 import { DEFAULT_ORG_CONFIG } from '../../../organisations/defaults';
+
+const EMPTY_CALENDAR: GovUkBankHolidays = {
+  'england-and-wales': { division: 'england-and-wales', events: [] },
+};
+
+function makeWorkingDay(): WorkingDayService {
+  const svc = new WorkingDayService({} as BankHolidaysLoader);
+  svc.applyCalendar(EMPTY_CALENDAR);
+  return svc;
+}
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://arrears:arrears@localhost:5432/arrears_poc';
@@ -75,7 +88,7 @@ function makeJob(): LwcaInvoicePollJob {
   const lwca = new FixtureLwcaInvoiceClient(FIXTURE_PATH) as LwcaInvoiceClient;
   const rentancy = new FixtureRentancyClient(RENTANCY_FIXTURE_DIR);
   const cases = new CasesService(prisma as unknown as PrismaService);
-  const charges = new ChargesService(prisma as unknown as PrismaService);
+  const charges = new ChargesService(prisma as unknown as PrismaService, makeWorkingDay());
   const tenancyRefresh = new TenancyRefreshService(
     prisma as unknown as PrismaService,
     rentancy,
@@ -233,7 +246,7 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
       probe: () => Promise.resolve({ ok: false, message: 'n/a', latencyMs: 0 }),
     };
     const cases = new CasesService(prisma as unknown as PrismaService);
-    const charges = new ChargesService(prisma as unknown as PrismaService);
+    const charges = new ChargesService(prisma as unknown as PrismaService, makeWorkingDay());
     const tenancyRefresh = new TenancyRefreshService(
       prisma as unknown as PrismaService,
       new FixtureRentancyClient(RENTANCY_FIXTURE_DIR),
