@@ -12,7 +12,7 @@ async function loadFixture(): Promise<LwcaInvoice[]> {
 }
 
 describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
-  it('drops DELETED, RECURRING, PAID, and zero-remain rows', async () => {
+  it('drops DELETED, RECURRING, PAID, zero-remain, and non-Rent rows', async () => {
     const invoices = await loadFixture();
     const mapped = LwcaInvoiceMapper.mapPage(invoices);
     expect(mapped.map((m) => m.charge.lwcaInvoiceId).sort()).toEqual([
@@ -24,6 +24,9 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       'lwca-inv-0009',
       'lwca-inv-0010',
     ]);
+    // 0011 is a Security Deposit invoice — must be filtered out even though
+    // it's UNPAID/OUTBOUND, because the arrears pipeline is rent-only.
+    expect(mapped.find((m) => m.charge.lwcaInvoiceId === 'lwca-inv-0011')).toBeUndefined();
   });
 
   it('projects amounts to bigint pence and preserves status', async () => {
@@ -69,6 +72,7 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       status: 'UNPAID',
       paymentCycleType: 'MONTHLY',
       tenancyId: 't',
+      lineItems: [{ type: 'Rent' }],
     };
     expect(LwcaInvoiceMapper.mapPage([bad])).toEqual([]);
   });
@@ -84,9 +88,58 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       status: 'UNPAID',
       paymentCycleType: 'MONTHLY',
       tenancyId: 't',
+      lineItems: [{ type: 'Rent' }],
     };
     const [m] = LwcaInvoiceMapper.mapPage([inv]);
     expect(m!.charge.grossAmountPence).toBe(12345678901234n);
     expect(m!.charge.lastKnownRemainAmountPence).toBe(1000n);
+  });
+
+  it('drops invoices whose line items contain no Rent entry', () => {
+    const inv: LwcaInvoice = {
+      id: 'deposit-only',
+      organisationId: 'o',
+      grossAmount: 50000,
+      remainAmount: 50000,
+      dueDate: '2026-04-01',
+      invoiceDate: '2026-03-15',
+      status: 'UNPAID',
+      paymentCycleType: 'SINGLE',
+      tenancyId: 't',
+      lineItems: [{ type: 'Security Deposit' }, { type: 'Council Tax' }],
+    };
+    expect(LwcaInvoiceMapper.mapPage([inv])).toEqual([]);
+  });
+
+  it('keeps invoices with at least one Rent line item alongside other categories', () => {
+    const inv: LwcaInvoice = {
+      id: 'mixed-with-rent',
+      organisationId: 'o',
+      grossAmount: 150000,
+      remainAmount: 150000,
+      dueDate: '2026-04-01',
+      invoiceDate: '2026-03-15',
+      status: 'UNPAID',
+      paymentCycleType: 'MONTHLY',
+      tenancyId: 't',
+      lineItems: [{ type: 'Council Tax' }, { type: 'Rent' }],
+    };
+    const [m] = LwcaInvoiceMapper.mapPage([inv]);
+    expect(m?.charge.lwcaInvoiceId).toBe('mixed-with-rent');
+  });
+
+  it('drops invoices that are missing lineItems entirely (defensive)', () => {
+    const inv: LwcaInvoice = {
+      id: 'no-items',
+      organisationId: 'o',
+      grossAmount: 100,
+      remainAmount: 100,
+      dueDate: '2026-04-01',
+      invoiceDate: '2026-03-15',
+      status: 'UNPAID',
+      paymentCycleType: 'MONTHLY',
+      tenancyId: 't',
+    };
+    expect(LwcaInvoiceMapper.mapPage([inv])).toEqual([]);
   });
 });

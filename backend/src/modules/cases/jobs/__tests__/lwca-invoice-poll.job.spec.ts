@@ -229,6 +229,7 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
   it('records a FAILED SyncJobRun and rethrows when the upstream call fails', async () => {
     const failing: LwcaInvoiceClient = {
       listArrears: () => Promise.reject(new Error('boom')),
+      listAllRaw: () => Promise.reject(new Error('boom')),
       probe: () => Promise.resolve({ ok: false, message: 'n/a', latencyMs: 0 }),
     };
     const cases = new CasesService(prisma as unknown as PrismaService);

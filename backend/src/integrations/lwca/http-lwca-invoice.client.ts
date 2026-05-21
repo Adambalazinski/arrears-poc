@@ -5,7 +5,7 @@ import type {
   LwcaProbeOutcome,
 } from './lwca-invoice.client';
 import { LwcaInvoiceMapper, type MappedLwcaInvoice } from './lwca-invoice.mapper';
-import { LwcaPagedInvoicesSchema } from './lwca-invoice.types';
+import { LwcaPagedInvoicesSchema, type LwcaInvoice } from './lwca-invoice.types';
 import { normaliseStagePage } from './lwca-stage-shape';
 
 const ARREARS_QS = new URLSearchParams({
@@ -38,18 +38,23 @@ export class HttpLwcaInvoiceClient implements LwcaInvoiceClient {
   }
 
   async listArrears(organisationId: string): Promise<MappedLwcaInvoice[]> {
+    const raw = await this.listAllRaw(organisationId);
+    return LwcaInvoiceMapper.mapPage(raw);
+  }
+
+  async listAllRaw(organisationId: string): Promise<LwcaInvoice[]> {
     return this.cognito.withFreshAccessToken(organisationId, async (token) => {
       // LWCA stage rejects page=0 with "must be greater than or equal to 1",
       // so pages are 1-indexed against the API even though the response's
       // `number` field is the same value.
       let page = 1;
-      const all: MappedLwcaInvoice[] = [];
+      const all: LwcaInvoice[] = [];
       while (true) {
         const qs = new URLSearchParams(ARREARS_QS);
         qs.set('page', String(page));
         const body = await this.get(qs, token);
         const parsed = LwcaPagedInvoicesSchema.parse(normaliseStagePage(body));
-        all.push(...LwcaInvoiceMapper.mapPage(parsed.content));
+        all.push(...parsed.content);
         const totalPages = parsed.totalPages ?? 1;
         if (page >= totalPages || parsed.content.length === 0) break;
         page += 1;

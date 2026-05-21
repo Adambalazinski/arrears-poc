@@ -54,6 +54,7 @@ describe('HttpLwcaInvoiceClient', () => {
               paymentCycleType: 'MONTHLY',
               tenancyId: 't-1',
               property: { propertyId: 'p-1' },
+              lineItems: [{ type: 'Rent' }],
             },
           ],
           totalPages: 1,
@@ -87,6 +88,7 @@ describe('HttpLwcaInvoiceClient', () => {
           status: 'UNPAID',
           paymentCycleType: 'MONTHLY',
           tenancyId: 't-1',
+          lineItems: [{ type: 'Rent' }],
         },
       ],
       [
@@ -100,6 +102,7 @@ describe('HttpLwcaInvoiceClient', () => {
           status: 'UNPAID',
           paymentCycleType: 'MONTHLY',
           tenancyId: 't-1',
+          lineItems: [{ type: 'Rent' }],
         },
       ],
     ];

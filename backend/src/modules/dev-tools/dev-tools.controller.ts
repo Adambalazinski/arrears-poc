@@ -19,6 +19,7 @@ import { ChaseTickService } from '../chase/chase-tick.service';
 import { DigestService } from '../chase/digest/digest.service';
 import { todayAt9LondonAsUtc } from '../chase/london-clock';
 import { PromiseExpiryJob } from '../promises/jobs/promise-expiry.job';
+import { PurgeNonRentService } from './purge-non-rent.service';
 import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
 
 const AdvanceClockSchema = z.object({
@@ -40,6 +41,7 @@ export class DevToolsController {
     private readonly seedFixtures: SeedFixtureEmailsService,
     private readonly lwcaPoll: LwcaInvoicePollJob,
     private readonly promiseExpiry: PromiseExpiryJob,
+    private readonly purgeNonRent: PurgeNonRentService,
   ) {}
 
   /**
@@ -52,6 +54,20 @@ export class DevToolsController {
   async forceSync(@Param('orgId') orgId: string) {
     this.assertEnabled();
     return this.lwcaPoll.runForOrg(orgId);
+  }
+
+  /**
+   * One-shot cleanup: delete Charge rows whose underlying LWCA invoice
+   * isn't a rent invoice. Needed because LWCA stage silently ignores
+   * `?lineItemType=Rent` so the upstream filter we added doesn't take
+   * effect; the mapper-side filter catches them on new syncs, but
+   * historical non-rent rows have to be purged out.
+   */
+  @Post('purge-non-rent/:orgId')
+  @HttpCode(200)
+  async purgeNonRentOrg(@Param('orgId') orgId: string) {
+    this.assertEnabled();
+    return this.purgeNonRent.runForOrg(orgId);
   }
 
   @Get('fixture-emails')

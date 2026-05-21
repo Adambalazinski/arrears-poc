@@ -103,8 +103,21 @@ export class LwcaInvoiceMapper {
     if (inv.status === 'DELETED') return false;
     if (!ARREARS_STATUSES.has(inv.status)) return false;
     if ((inv.paymentCycleType ?? '').toUpperCase() === 'RECURRING') return false;
+    // Arrears chasing is rent-only. The category lives on lineItems[i].type
+    // — values like "Rent", "Security Deposit", "Council Tax". We tried
+    // pushing this filter upstream via `?lineItemType=Rent` on the LWCA
+    // query but stage silently ignores the param, so the only reliable
+    // place to enforce it is here.
+    if (!hasRentLineItem(inv)) return false;
     return true;
   }
+}
+
+function hasRentLineItem(inv: LwcaInvoice): boolean {
+  for (const li of inv.lineItems ?? []) {
+    if (li.type === 'Rent') return true;
+  }
+  return false;
 }
 
 function toBigIntPence(value: number | string): bigint {

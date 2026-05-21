@@ -26,6 +26,19 @@ export const LwcaInvoicePropertySchema = z.object({
 });
 export type LwcaInvoiceProperty = z.infer<typeof LwcaInvoicePropertySchema>;
 
+/**
+ * One row of an invoice's `lineItems[]` array. We only read `type` — the
+ * category vocabulary lives at GET /v1/api/invoice/lineItemType ("Rent",
+ * "Council Tax", "Security Deposit", "Utilities: …", etc.) and is the only
+ * signal we have for distinguishing rent from other charges, because the
+ * invoice's top-level `type` field is direction (OUTBOUND/INBOUND), not
+ * category.
+ */
+export const LwcaLineItemSchema = z.object({
+  type: z.string().nullable().optional(),
+});
+export type LwcaLineItem = z.infer<typeof LwcaLineItemSchema>;
+
 export const LwcaInvoiceSchema = z.object({
   id: z.string(),
   organisationId: z.string(),
@@ -45,6 +58,7 @@ export const LwcaInvoiceSchema = z.object({
   description: z.string().nullable().optional(),
   payeeType: z.string().optional(),
   property: LwcaInvoicePropertySchema.optional(),
+  lineItems: z.array(LwcaLineItemSchema).optional(),
   payer: z
     .object({
       payerId: z.string().optional(),

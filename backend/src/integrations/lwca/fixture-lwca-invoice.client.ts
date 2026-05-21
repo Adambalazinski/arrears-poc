@@ -6,7 +6,7 @@ import type {
   LwcaProbeOutcome,
 } from './lwca-invoice.client';
 import { LwcaInvoiceMapper, type MappedLwcaInvoice } from './lwca-invoice.mapper';
-import { LwcaPagedInvoicesSchema } from './lwca-invoice.types';
+import { LwcaPagedInvoicesSchema, type LwcaInvoice } from './lwca-invoice.types';
 
 /**
  * Offline implementation used by tests and `INTEGRATION_MODE=fixtures`. Reads
@@ -24,9 +24,13 @@ export class FixtureLwcaInvoiceClient implements LwcaInvoiceClient {
   }
 
   async listArrears(_organisationId: string): Promise<MappedLwcaInvoice[]> {
+    return LwcaInvoiceMapper.mapPage(await this.listAllRaw(_organisationId));
+  }
+
+  async listAllRaw(_organisationId: string): Promise<LwcaInvoice[]> {
     const raw = await fs.readFile(this.fixturePath, 'utf-8');
     const parsed = LwcaPagedInvoicesSchema.parse(JSON.parse(raw));
-    return LwcaInvoiceMapper.mapPage(parsed.content);
+    return parsed.content;
   }
 
   async probe(_organisationId: string, _accessToken: string): Promise<LwcaProbeOutcome> {
