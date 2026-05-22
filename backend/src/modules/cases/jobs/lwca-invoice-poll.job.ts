@@ -4,6 +4,7 @@ import {
   CaseEventKind,
   CaseStatus,
   ChargeStatus,
+  ChaseStage,
   Prisma,
   SyncJobKind,
   SyncJobStatus,
@@ -34,6 +35,18 @@ const IN_ARREARS_STATUSES: ChargeStatus[] = [
 const FINAL_PAID_STATUSES: ReadonlySet<ChargeStatus> = new Set([
   ChargeStatus.PAID,
   ChargeStatus.RECONCILED,
+]);
+
+/**
+ * Statuses that mean "this charge is done — no more chases". When the
+ * stale-refresh transitions a charge into one of these, we also flip
+ * `currentStage` to RESOLVED so the UI and stage-severity comparisons
+ * stop treating it as a live arrears row.
+ */
+const RESOLVED_TERMINAL_STATUSES: ReadonlySet<ChargeStatus> = new Set([
+  ChargeStatus.PAID,
+  ChargeStatus.RECONCILED,
+  ChargeStatus.DELETED,
 ]);
 
 export interface PollRunResult {
@@ -276,25 +289,33 @@ export class LwcaInvoicePollJob {
     if (fresh === null) {
       // 404: upstream no longer has this invoice. Mirror as DELETED and
       // zero the remain — a deleted invoice has no outstanding amount,
-      // so recomputeAndMaybeClose can close the case naturally.
+      // so recomputeAndMaybeClose can close the case naturally. Stage
+      // moves to RESOLVED so the charge stops looking like a live row
+      // in stage-severity comparisons.
       await this.prisma.charge.update({
         where: { id: local.id },
         data: {
           lastKnownStatus: ChargeStatus.DELETED,
           lastKnownRemainAmountPence: 0n,
           lastSyncedAt: now,
+          currentStage: ChaseStage.RESOLVED,
+          currentStageEnteredAt: now,
         },
       });
       return;
     }
     const newStatus = fresh.status as ChargeStatus;
     const newRemain = toBigIntPence(fresh.remainAmount);
+    const movingToResolved = RESOLVED_TERMINAL_STATUSES.has(newStatus);
     await this.prisma.charge.update({
       where: { id: local.id },
       data: {
         lastKnownStatus: newStatus,
         lastKnownRemainAmountPence: newRemain,
         lastSyncedAt: now,
+        ...(movingToResolved
+          ? { currentStage: ChaseStage.RESOLVED, currentStageEnteredAt: now }
+          : {}),
       },
     });
     if (FINAL_PAID_STATUSES.has(newStatus)) {

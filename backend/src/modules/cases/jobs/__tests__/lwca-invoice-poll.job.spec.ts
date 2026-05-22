@@ -374,6 +374,10 @@ describe('LwcaInvoicePollJob.runForOrg — defect 2: stale-charge refresh', () =
     const refreshed = await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } });
     expect(refreshed.lastKnownStatus).toBe('PAID');
     expect(refreshed.lastKnownRemainAmountPence).toBe(0n);
+    // Stage moves to RESOLVED so stage-severity comparisons stop
+    // treating this row as live arrears.
+    expect(refreshed.currentStage).toBe('RESOLVED');
+    expect(refreshed.currentStageEnteredAt).not.toBeNull();
 
     const closed = await prisma.case.findUniqueOrThrow({ where: { id: caseId } });
     expect(closed.status).toBe('CLOSED');
@@ -398,6 +402,7 @@ describe('LwcaInvoicePollJob.runForOrg — defect 2: stale-charge refresh', () =
 
     const refreshed = await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } });
     expect(refreshed.lastKnownStatus).toBe('DELETED');
+    expect(refreshed.currentStage).toBe('RESOLVED');
 
     // Case-close happens because every remaining charge is in a final
     // state (DELETED) and the balance recomputes to 0.
