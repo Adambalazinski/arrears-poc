@@ -243,6 +243,7 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
     const failing: LwcaInvoiceClient = {
       listArrears: () => Promise.reject(new Error('boom')),
       listAllRaw: () => Promise.reject(new Error('boom')),
+      getInvoice: () => Promise.reject(new Error('boom')),
       probe: () => Promise.resolve({ ok: false, message: 'n/a', latencyMs: 0 }),
     };
     const cases = new CasesService(prisma as unknown as PrismaService);
@@ -267,5 +268,189 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
     });
     expect(run.status).toBe('FAILED');
     expect(run.errorJson).toMatchObject({ message: 'boom' });
+  });
+});
+
+describe('LwcaInvoicePollJob.runForOrg — defect 2: stale-charge refresh', () => {
+  /**
+   * The arrears list filters by `statuses=UNPAID,PARTIALLY_PAID,
+   * PARTIALLY_RECONCILED`, so a charge that just got paid in LWCA
+   * never comes back through `listArrears`. The poll job must spot
+   * the gap and hit `GET /v1/api/invoice/{id}` directly to refresh.
+   */
+
+  function makeJobWithStub(lwca: LwcaInvoiceClient): LwcaInvoicePollJob {
+    const rentancy = new FixtureRentancyClient(RENTANCY_FIXTURE_DIR);
+    const cases = new CasesService(prisma as unknown as PrismaService);
+    const charges = new ChargesService(
+      prisma as unknown as PrismaService,
+      makeWorkingDay(),
+    );
+    const tenancyRefresh = new TenancyRefreshService(
+      prisma as unknown as PrismaService,
+      rentancy,
+    );
+    const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
+    return new LwcaInvoicePollJob(
+      prisma as unknown as PrismaService,
+      lwca,
+      cases,
+      charges,
+      tenancyRefresh,
+      s8,
+    );
+  }
+
+  /** Seed one ACTIVE case + one UNPAID charge ahead of the test. */
+  async function seedActiveUnpaidCharge(invoiceId: string): Promise<{
+    caseId: string;
+    chargeId: string;
+  }> {
+    await prisma.tenancy.upsert({
+      where: { id: 'stale-tenancy-1' },
+      create: {
+        id: 'stale-tenancy-1',
+        organisationId: ORG_ID,
+        propertyId: 'stale-prop',
+        status: 'ACTIVE',
+        lastSyncedAt: new Date(),
+      },
+      update: {},
+    });
+    const c = await prisma.case.create({
+      data: {
+        organisationId: ORG_ID,
+        tenancyId: 'stale-tenancy-1',
+        status: 'ACTIVE',
+        openedAt: new Date(),
+        lastKnownBalancePence: 120000n,
+        lastKnownBalanceAt: new Date(),
+      },
+    });
+    const ch = await prisma.charge.create({
+      data: {
+        caseId: c.id,
+        organisationId: ORG_ID,
+        lwcaInvoiceId: invoiceId,
+        dueDate: new Date('2026-03-01T00:00:00Z'),
+        invoiceDate: new Date('2026-02-15T00:00:00Z'),
+        grossAmountPence: 120000n,
+        lastKnownRemainAmountPence: 120000n,
+        lastKnownStatus: 'UNPAID',
+        lastKnownPaymentCycleType: 'MONTHLY',
+        lastSyncedAt: new Date('2026-03-15T00:00:00Z'),
+      },
+    });
+    return { caseId: c.id, chargeId: ch.id };
+  }
+
+  it('updates a paid charge to PAID and closes the case (LWCA dropped it from the arrears list)', async () => {
+    const { caseId, chargeId } = await seedActiveUnpaidCharge('inv-paid');
+
+    const lwca: LwcaInvoiceClient = {
+      listArrears: () => Promise.resolve([]), // payment happened — invoice no longer in arrears
+      listAllRaw: () => Promise.resolve([]),
+      probe: () => Promise.resolve({ ok: true, message: 'ok', latencyMs: 0 }),
+      getInvoice: async (_org, id) => {
+        expect(id).toBe('inv-paid');
+        return {
+          id: 'inv-paid',
+          organisationId: ORG_ID,
+          grossAmount: 120000,
+          remainAmount: 0,
+          dueDate: '2026-03-01',
+          invoiceDate: '2026-02-15',
+          status: 'PAID',
+          paymentCycleType: 'MONTHLY',
+          tenancyId: 'stale-tenancy-1',
+          lineItems: [{ type: 'Rent' }],
+        };
+      },
+    };
+
+    const result = await makeJobWithStub(lwca).runForOrg(ORG_ID);
+    expect(result.casesClosed).toBe(1);
+
+    const refreshed = await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } });
+    expect(refreshed.lastKnownStatus).toBe('PAID');
+    expect(refreshed.lastKnownRemainAmountPence).toBe(0n);
+
+    const closed = await prisma.case.findUniqueOrThrow({ where: { id: caseId } });
+    expect(closed.status).toBe('CLOSED');
+
+    const fullyPaidEvents = await prisma.caseEvent.findMany({
+      where: { caseId, kind: 'CHARGE_FULLY_PAID' },
+    });
+    expect(fullyPaidEvents).toHaveLength(1);
+  });
+
+  it('marks a charge DELETED locally when the invoice 404s upstream', async () => {
+    const { caseId, chargeId } = await seedActiveUnpaidCharge('inv-deleted');
+
+    const lwca: LwcaInvoiceClient = {
+      listArrears: () => Promise.resolve([]),
+      listAllRaw: () => Promise.resolve([]),
+      probe: () => Promise.resolve({ ok: true, message: 'ok', latencyMs: 0 }),
+      getInvoice: async () => null, // 404
+    };
+
+    await makeJobWithStub(lwca).runForOrg(ORG_ID);
+
+    const refreshed = await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } });
+    expect(refreshed.lastKnownStatus).toBe('DELETED');
+
+    // Case-close happens because every remaining charge is in a final
+    // state (DELETED) and the balance recomputes to 0.
+    const c = await prisma.case.findUniqueOrThrow({ where: { id: caseId } });
+    expect(c.status).toBe('CLOSED');
+  });
+
+  it('leaves charges alone when they are still in the arrears list', async () => {
+    const { chargeId } = await seedActiveUnpaidCharge('inv-still-arrears');
+
+    let getInvoiceCalls = 0;
+    const lwca: LwcaInvoiceClient = {
+      listArrears: () =>
+        Promise.resolve([
+          {
+            charge: {
+              organisationId: ORG_ID,
+              lwcaInvoiceId: 'inv-still-arrears',
+              dueDate: new Date('2026-03-01T00:00:00Z'),
+              invoiceDate: new Date('2026-02-15T00:00:00Z'),
+              grossAmountPence: 120000n,
+              lastKnownRemainAmountPence: 120000n,
+              lastKnownStatus: 'UNPAID',
+              lastKnownPaymentCycleType: 'MONTHLY',
+              lastKnownType: null,
+              lastKnownDescription: null,
+              lastSyncedAt: new Date(),
+              upstreamReferenceId: null,
+            },
+            tenancy: {
+              tenancyId: 'stale-tenancy-1',
+              propertyId: 'stale-prop',
+              propertyName: null,
+              propertyAddress1: null,
+              propertyAddress2: null,
+            },
+          },
+        ]),
+      listAllRaw: () => Promise.resolve([]),
+      probe: () => Promise.resolve({ ok: true, message: 'ok', latencyMs: 0 }),
+      getInvoice: () => {
+        getInvoiceCalls++;
+        return Promise.resolve(null);
+      },
+    };
+
+    await makeJobWithStub(lwca).runForOrg(ORG_ID);
+
+    // The charge was in the list, so stale-refresh shouldn't have
+    // touched it at all.
+    expect(getInvoiceCalls).toBe(0);
+
+    const c = await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } });
+    expect(c.lastKnownStatus).toBe('UNPAID');
   });
 });

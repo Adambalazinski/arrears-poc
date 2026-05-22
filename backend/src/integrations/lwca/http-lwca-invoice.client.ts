@@ -74,13 +74,24 @@ export class HttpLwcaInvoiceClient implements LwcaInvoiceClient {
       // HYDRATE_CONCURRENCY in flight so we don't burst LWCA with 50+
       // parallel connections at workspace scale.
       return mapWithConcurrency(summaries, HYDRATE_CONCURRENCY, async (inv) => {
-        const full = await this.getInvoice(inv.id, token);
+        const full = await this.fetchInvoice(inv.id, token);
         return { ...inv, lineItems: full.lineItems };
       });
     });
   }
 
-  private async getInvoice(invoiceId: string, accessToken: string): Promise<LwcaInvoice> {
+  async getInvoice(organisationId: string, invoiceId: string): Promise<LwcaInvoice | null> {
+    return this.cognito.withFreshAccessToken(organisationId, async (token) => {
+      try {
+        return await this.fetchInvoice(invoiceId, token);
+      } catch (err) {
+        if (err instanceof LwcaHttpError && err.status === 404) return null;
+        throw err;
+      }
+    });
+  }
+
+  private async fetchInvoice(invoiceId: string, accessToken: string): Promise<LwcaInvoice> {
     const url = `${this.baseUrl}/v1/api/invoice/${encodeURIComponent(invoiceId)}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },

@@ -6,6 +6,11 @@ import { LwcaPagedInvoicesSchema, type LwcaInvoice } from '../lwca-invoice.types
 
 const FIXTURE = path.resolve(__dirname, '../../../../../fixtures/lwca/invoices-list.json');
 
+// Pinned "today" for deterministic tests: well past every fixture's
+// dueDate, so the new "must be strictly past dueDate" filter doesn't
+// drift as the calendar moves on.
+const NOW = new Date('2026-07-01T12:00:00Z');
+
 async function loadFixture(): Promise<LwcaInvoice[]> {
   const raw = await fs.readFile(FIXTURE, 'utf-8');
   return LwcaPagedInvoicesSchema.parse(JSON.parse(raw)).content;
@@ -14,7 +19,7 @@ async function loadFixture(): Promise<LwcaInvoice[]> {
 describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
   it('drops DELETED, RECURRING, PAID, zero-remain, and non-Rent rows', async () => {
     const invoices = await loadFixture();
-    const mapped = LwcaInvoiceMapper.mapPage(invoices);
+    const mapped = LwcaInvoiceMapper.mapPage(invoices, NOW);
     expect(mapped.map((m) => m.charge.lwcaInvoiceId).sort()).toEqual([
       'lwca-inv-0001',
       'lwca-inv-0002',
@@ -31,7 +36,7 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
 
   it('projects amounts to bigint pence and preserves status', async () => {
     const invoices = await loadFixture();
-    const mapped = LwcaInvoiceMapper.mapPage(invoices);
+    const mapped = LwcaInvoiceMapper.mapPage(invoices, NOW);
     const partial = mapped.find((m) => m.charge.lwcaInvoiceId === 'lwca-inv-0002')!;
     expect(typeof partial.charge.grossAmountPence).toBe('bigint');
     expect(partial.charge.grossAmountPence).toBe(120000n);
@@ -42,7 +47,7 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
 
   it('parses dueDate / invoiceDate as UTC midnight', async () => {
     const invoices = await loadFixture();
-    const mapped = LwcaInvoiceMapper.mapPage(invoices);
+    const mapped = LwcaInvoiceMapper.mapPage(invoices, NOW);
     const first = mapped.find((m) => m.charge.lwcaInvoiceId === 'lwca-inv-0001')!;
     expect(first.charge.dueDate.toISOString()).toBe('2026-04-01T00:00:00.000Z');
     expect(first.charge.invoiceDate.toISOString()).toBe('2026-03-15T00:00:00.000Z');
@@ -50,7 +55,7 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
 
   it('lifts the property block into a TenancyHint', async () => {
     const invoices = await loadFixture();
-    const mapped = LwcaInvoiceMapper.mapPage(invoices);
+    const mapped = LwcaInvoiceMapper.mapPage(invoices, NOW);
     const first = mapped.find((m) => m.charge.lwcaInvoiceId === 'lwca-inv-0001')!;
     expect(first.tenancy).toEqual({
       tenancyId: 'tenancy-abc-001',
@@ -74,7 +79,7 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       tenancyId: 't',
       lineItems: [{ type: 'Rent' }],
     };
-    expect(LwcaInvoiceMapper.mapPage([bad])).toEqual([]);
+    expect(LwcaInvoiceMapper.mapPage([bad], NOW)).toEqual([]);
   });
 
   it('accepts string pence amounts (BigInteger over JSON)', () => {
@@ -90,7 +95,7 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       tenancyId: 't',
       lineItems: [{ type: 'Rent' }],
     };
-    const [m] = LwcaInvoiceMapper.mapPage([inv]);
+    const [m] = LwcaInvoiceMapper.mapPage([inv], NOW);
     expect(m!.charge.grossAmountPence).toBe(12345678901234n);
     expect(m!.charge.lastKnownRemainAmountPence).toBe(1000n);
   });
@@ -108,7 +113,7 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       tenancyId: 't',
       lineItems: [{ type: 'Security Deposit' }, { type: 'Council Tax' }],
     };
-    expect(LwcaInvoiceMapper.mapPage([inv])).toEqual([]);
+    expect(LwcaInvoiceMapper.mapPage([inv], NOW)).toEqual([]);
   });
 
   it('keeps invoices with at least one Rent line item alongside other categories', () => {
@@ -124,7 +129,7 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       tenancyId: 't',
       lineItems: [{ type: 'Council Tax' }, { type: 'Rent' }],
     };
-    const [m] = LwcaInvoiceMapper.mapPage([inv]);
+    const [m] = LwcaInvoiceMapper.mapPage([inv], NOW);
     expect(m?.charge.lwcaInvoiceId).toBe('mixed-with-rent');
   });
 
@@ -140,6 +145,66 @@ describe('LwcaInvoiceMapper.mapPage (fixture)', () => {
       paymentCycleType: 'MONTHLY',
       tenancyId: 't',
     };
-    expect(LwcaInvoiceMapper.mapPage([inv])).toEqual([]);
+    expect(LwcaInvoiceMapper.mapPage([inv], NOW)).toEqual([]);
+  });
+});
+
+describe('LwcaInvoiceMapper.mapPage — defect 1: due-date filter', () => {
+  /**
+   * Case should open only once today is strictly past the due date.
+   * Calendar days, Europe/London. A charge with dueDate=today still has
+   * the rest of the day to pay; the chase pipeline doesn't see it until
+   * tomorrow's sync.
+   */
+  function makeInvoice(dueDate: string, id = 'inv-1'): LwcaInvoice {
+    return {
+      id,
+      organisationId: 'o',
+      grossAmount: 100,
+      remainAmount: 100,
+      dueDate,
+      invoiceDate: '2026-03-15',
+      status: 'UNPAID',
+      paymentCycleType: 'MONTHLY',
+      tenancyId: 't',
+      lineItems: [{ type: 'Rent' }],
+    };
+  }
+
+  it('keeps invoices whose dueDate is yesterday (London)', () => {
+    const now = new Date('2026-05-22T12:00:00Z');
+    const yesterday = makeInvoice('2026-05-21');
+    expect(LwcaInvoiceMapper.mapPage([yesterday], now)).toHaveLength(1);
+  });
+
+  it('drops invoices whose dueDate is today (London) — tenant still has the day to pay', () => {
+    const now = new Date('2026-05-22T12:00:00Z');
+    const today = makeInvoice('2026-05-22');
+    expect(LwcaInvoiceMapper.mapPage([today], now)).toEqual([]);
+  });
+
+  it('drops invoices whose dueDate is tomorrow (London)', () => {
+    const now = new Date('2026-05-22T12:00:00Z');
+    const tomorrow = makeInvoice('2026-05-23');
+    expect(LwcaInvoiceMapper.mapPage([tomorrow], now)).toEqual([]);
+  });
+
+  it('treats LWCA full-ISO dueDate (with London offset) as the same London day, not UTC', () => {
+    // LWCA stage sends "2026-05-22T15:00:00+01:00" which is 14:00 UTC on
+    // the same calendar day in London. A naive UTC compare would still
+    // call this "today < tomorrow-UTC-midnight" and drop it, but the
+    // London-YMD compare is the right one because the SLA is calendar
+    // days.
+    const now = new Date('2026-05-22T12:00:00Z');
+    const inv = makeInvoice('2026-05-22T15:00:00+01:00');
+    expect(LwcaInvoiceMapper.mapPage([inv], now)).toEqual([]);
+  });
+
+  it('handles the late-night-UTC / early-morning-London edge: 23:30 UTC ⇒ 00:30 London next day', () => {
+    // At 23:30 UTC on 2026-05-22, London is already 00:30 on 2026-05-23.
+    // A charge dueDate=2026-05-22 is now "yesterday" in London → keep.
+    const now = new Date('2026-05-22T23:30:00Z');
+    const inv = makeInvoice('2026-05-22');
+    expect(LwcaInvoiceMapper.mapPage([inv], now)).toHaveLength(1);
   });
 });

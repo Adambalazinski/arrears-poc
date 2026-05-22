@@ -17,6 +17,16 @@ export interface LwcaInvoiceClient {
    */
   listAllRaw(organisationId: string): Promise<LwcaInvoice[]>;
   /**
+   * Fetch one invoice by id. Used to refresh charges that fell off the
+   * arrears list (typically because they got paid) — the list query
+   * filters by `statuses=UNPAID,PARTIALLY_PAID,PARTIALLY_RECONCILED`, so
+   * a paid invoice never comes back through `listArrears` and our local
+   * state would otherwise stay UNPAID forever.
+   *
+   * Returns `null` when the upstream invoice no longer exists (404).
+   */
+  getInvoice(organisationId: string, invoiceId: string): Promise<LwcaInvoice | null>;
+  /**
    * Validate-on-save: calls /v1/api/invoice?size=1 against stage using the
    * caller-supplied access token (the credential row may not exist yet).
    */

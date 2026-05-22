@@ -33,6 +33,11 @@ export class FixtureLwcaInvoiceClient implements LwcaInvoiceClient {
     return parsed.content;
   }
 
+  async getInvoice(organisationId: string, invoiceId: string): Promise<LwcaInvoice | null> {
+    const all = await this.listAllRaw(organisationId);
+    return all.find((inv) => inv.id === invoiceId) ?? null;
+  }
+
   async probe(_organisationId: string, _accessToken: string): Promise<LwcaProbeOutcome> {
     // Fixture mode probes don't actually call anything; reading the fixture
     // file is the only way they can fail, so we do a stat() to surface a

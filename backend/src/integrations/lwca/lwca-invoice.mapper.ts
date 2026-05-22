@@ -60,8 +60,9 @@ export class LwcaInvoiceMapper {
    * zero remainder, missing due date) is dropped here — the case-open
    * service receives only the rows that should drive a chase.
    */
-  static mapPage(invoices: LwcaInvoice[]): MappedLwcaInvoice[] {
-    const now = new Date();
+  static mapPage(invoices: LwcaInvoice[], nowOverride?: Date): MappedLwcaInvoice[] {
+    const now = nowOverride ?? new Date();
+    const todayLondonYmd = londonYmd(now);
     const mapped: MappedLwcaInvoice[] = [];
     for (const inv of invoices) {
       if (!this.isArrearsCandidate(inv)) continue;
@@ -69,6 +70,12 @@ export class LwcaInvoiceMapper {
       const gross = toBigIntPence(inv.grossAmount);
       if (remain <= 0n) continue;
       if (!inv.dueDate) continue;
+      // A charge is in arrears only once today is strictly past the
+      // due date (calendar days, Europe/London). dueDate=today means
+      // the tenant still has the rest of the day to pay. The case will
+      // open on the next sync after the due date passes.
+      const dueLondonYmd = londonYmd(parseDateOnly(inv.dueDate));
+      if (dueLondonYmd >= todayLondonYmd) continue;
       // Stage returns invoices without a tenancy link (unallocated or
       // ad-hoc charges). The chase pipeline is keyed on tenancies — skip.
       if (!inv.tenancyId) continue;
@@ -120,7 +127,7 @@ function hasRentLineItem(inv: LwcaInvoice): boolean {
   return false;
 }
 
-function toBigIntPence(value: number | string): bigint {
+export function toBigIntPence(value: number | string): bigint {
   if (typeof value === 'number') {
     if (!Number.isFinite(value) || Math.trunc(value) !== value) {
       throw new Error(`LWCA returned non-integer pence value: ${value}`);
@@ -135,4 +142,21 @@ function parseDateOnly(s: string): Date {
   // arithmetic can re-project onto Europe/London at its boundary.
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00Z`);
   return new Date(s);
+}
+
+/**
+ * Calendar day in Europe/London as YYYY-MM-DD. `en-CA` produces
+ * lexicographically sortable date strings. Used for "is today past
+ * the due date" comparisons where we don't want UTC midnight in
+ * London to skew the result.
+ */
+const LONDON_YMD_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/London',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function londonYmd(d: Date): string {
+  return LONDON_YMD_FORMATTER.format(d);
 }

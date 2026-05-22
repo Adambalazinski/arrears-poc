@@ -1,16 +1,40 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Prisma, SyncJobKind, SyncJobStatus, type SyncJobRun } from '@prisma/client';
+import {
+  CaseEventKind,
+  CaseStatus,
+  ChargeStatus,
+  Prisma,
+  SyncJobKind,
+  SyncJobStatus,
+  type SyncJobRun,
+} from '@prisma/client';
 import { PrismaService } from '../../../integrations/prisma/prisma.service';
 import {
   LWCA_INVOICE_CLIENT,
   type LwcaInvoiceClient,
 } from '../../../integrations/lwca/lwca-invoice.client';
-import type { LwcaTenancyHint } from '../../../integrations/lwca/lwca-invoice.mapper';
+import { mapWithConcurrency } from '../../../integrations/lwca/http-lwca-invoice.client';
+import {
+  toBigIntPence,
+  type LwcaTenancyHint,
+} from '../../../integrations/lwca/lwca-invoice.mapper';
+import type { LwcaInvoice } from '../../../integrations/lwca/lwca-invoice.types';
 import { ChargesService } from '../../charges/charges.service';
 import { TenancyRefreshService } from '../../tenancies/tenancy-refresh.service';
 import { CasesService } from '../cases.service';
 import { S8EvaluationService } from '../s8-evaluation.service';
+
+const IN_ARREARS_STATUSES: ChargeStatus[] = [
+  ChargeStatus.UNPAID,
+  ChargeStatus.PARTIALLY_PAID,
+  ChargeStatus.PARTIALLY_RECONCILED,
+];
+
+const FINAL_PAID_STATUSES: ReadonlySet<ChargeStatus> = new Set([
+  ChargeStatus.PAID,
+  ChargeStatus.RECONCILED,
+]);
 
 export interface PollRunResult {
   organisationId: string;
@@ -102,6 +126,16 @@ export class LwcaInvoicePollJob {
         else updated++;
         touchedCases.add(open.caseId);
       }
+      // Defect 2: refresh charges that fell off the arrears list. The
+      // list query filters by `statuses=UNPAID,PARTIALLY_PAID,
+      // PARTIALLY_RECONCILED`, so a charge that just got paid in LWCA
+      // never comes back through `listArrears` and our local state
+      // would stay UNPAID. Walk every DB charge in arrears status on an
+      // ACTIVE case for this org that wasn't seen in this run and
+      // refresh it directly via GET /v1/api/invoice/{id}.
+      const seenInvoiceIds = new Set(invoices.map((i) => i.charge.lwcaInvoiceId));
+      await this.refreshStaleCharges(organisationId, seenInvoiceIds, touchedCases);
+
       // Phase 4.4: a newly opened case triggers a one-shot Rentancy refresh
       // to populate tenant + guarantor data. Failures are logged but
       // don't fail the polling run — the hourly refresh job will retry.
@@ -162,6 +196,120 @@ export class LwcaInvoicePollJob {
         errorJson: { message },
       });
       throw err;
+    }
+  }
+
+  /**
+   * Defect 2: hydrate paid/deleted charges that fell off the arrears list.
+   *
+   * For each Charge row on an ACTIVE case in this org whose
+   * `lastKnownStatus` is still in arrears but whose `lwcaInvoiceId`
+   * wasn't returned by `listArrears` this run, fetch the invoice
+   * directly via `GET /v1/api/invoice/{id}` and reconcile our local
+   * row:
+   *   - upstream now PAID / RECONCILED: update status + remain, emit
+   *     CHARGE_FULLY_PAID, mark the case as touched so
+   *     recomputeAndMaybeClose runs after this loop.
+   *   - upstream now DELETED: mirror it locally so case-close treats
+   *     it as a final state.
+   *   - upstream returned 404 (`null` from the client): same — mark
+   *     DELETED locally so the row doesn't keep the case open.
+   *   - upstream surprisingly still UNPAID-ish: update status + remain
+   *     anyway (defensive — possibly a transient LWCA filtering bug).
+   *
+   * Per-invoice fetch is capped at 5 in flight (same pool that hydrates
+   * the regular arrears list).
+   */
+  private async refreshStaleCharges(
+    organisationId: string,
+    seenInvoiceIds: ReadonlySet<string>,
+    touchedCases: Set<string>,
+  ): Promise<void> {
+    const stale = await this.prisma.charge.findMany({
+      where: {
+        organisationId,
+        lastKnownStatus: { in: IN_ARREARS_STATUSES },
+        case: { status: CaseStatus.ACTIVE },
+        ...(seenInvoiceIds.size > 0
+          ? { NOT: { lwcaInvoiceId: { in: Array.from(seenInvoiceIds) } } }
+          : {}),
+      },
+      select: {
+        id: true,
+        lwcaInvoiceId: true,
+        caseId: true,
+        lastKnownStatus: true,
+        grossAmountPence: true,
+        lastKnownRemainAmountPence: true,
+      },
+    });
+    if (stale.length === 0) return;
+
+    await mapWithConcurrency(stale, 5, async (c) => {
+      try {
+        const fresh = await this.lwca.getInvoice(organisationId, c.lwcaInvoiceId);
+        await this.applyStaleRefresh(c, fresh);
+        touchedCases.add(c.caseId);
+      } catch (err) {
+        this.logger.warn(
+          `lwca-invoice-poll: stale-refresh failed for charge ${c.id} (invoice ${c.lwcaInvoiceId}) — ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    });
+    this.logger.log(
+      `lwca-invoice-poll: refreshed ${stale.length} stale charge(s) for org=${organisationId}`,
+    );
+  }
+
+  private async applyStaleRefresh(
+    local: {
+      id: string;
+      caseId: string;
+      lwcaInvoiceId: string;
+      lastKnownStatus: ChargeStatus;
+      grossAmountPence: bigint;
+      lastKnownRemainAmountPence: bigint;
+    },
+    fresh: LwcaInvoice | null,
+  ): Promise<void> {
+    const now = new Date();
+    if (fresh === null) {
+      // 404: upstream no longer has this invoice. Mirror as DELETED and
+      // zero the remain — a deleted invoice has no outstanding amount,
+      // so recomputeAndMaybeClose can close the case naturally.
+      await this.prisma.charge.update({
+        where: { id: local.id },
+        data: {
+          lastKnownStatus: ChargeStatus.DELETED,
+          lastKnownRemainAmountPence: 0n,
+          lastSyncedAt: now,
+        },
+      });
+      return;
+    }
+    const newStatus = fresh.status as ChargeStatus;
+    const newRemain = toBigIntPence(fresh.remainAmount);
+    await this.prisma.charge.update({
+      where: { id: local.id },
+      data: {
+        lastKnownStatus: newStatus,
+        lastKnownRemainAmountPence: newRemain,
+        lastSyncedAt: now,
+      },
+    });
+    if (FINAL_PAID_STATUSES.has(newStatus)) {
+      await this.prisma.caseEvent.create({
+        data: {
+          caseId: local.caseId,
+          kind: CaseEventKind.CHARGE_FULLY_PAID,
+          payloadJson: {
+            chargeId: local.id,
+            lwcaInvoiceId: local.lwcaInvoiceId,
+            previousStatus: local.lastKnownStatus,
+            newStatus,
+          },
+        },
+      });
     }
   }
 
