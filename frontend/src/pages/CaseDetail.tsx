@@ -213,10 +213,10 @@ function Timeline({ events }: { events: CaseEventRow[] }): JSX.Element {
                 <code className="text-xs text-muted-foreground w-44 shrink-0">
                   {new Date(e.occurredAt).toLocaleString('en-GB')}
                 </code>
-                <span className="font-medium w-56 shrink-0">{e.kind}</span>
-                <code className="text-xs text-muted-foreground break-all">
-                  {summarisePayload(e.payloadJson)}
-                </code>
+                <span className="font-medium w-56 shrink-0">{eventLabel(e.kind)}</span>
+                <span className="text-sm text-foreground/80 break-all">
+                  {eventSummary(e.kind, e.payloadJson)}
+                </span>
               </li>
             ))}
           </ol>
@@ -760,11 +760,135 @@ function StatusChip({ status }: { status: CommunicationSummary['status'] }): JSX
   );
 }
 
-function summarisePayload(p: unknown): string {
-  if (p == null) return '';
+/**
+ * Display labels for timeline event kinds. Falls back to the raw enum
+ * name (turned title-case) for any kind not explicitly listed — newly
+ * added events still render readably even if we forgot to add a label.
+ */
+const EVENT_LABELS: Record<string, string> = {
+  CASE_OPENED: 'Case opened',
+  CASE_CLOSED: 'Case closed',
+  CHARGE_ADDED: 'Charge added',
+  CHARGE_SYNCED: 'Charge synced',
+  CHARGE_FULLY_PAID: 'Charge fully paid',
+  CHARGE_PARTIALLY_PAID: 'Partial payment received',
+  CHARGE_CADENCE_RESET: 'Cadence reset to WD3',
+  CHARGE_CADENCE_STEPPED_BACK: 'Cadence stepped back',
+  CHASE_STAGE_ADVANCED: 'Chase stage advanced',
+  COMMUNICATION_DRAFTED: 'Draft created',
+  COMMUNICATION_APPROVED: 'Draft approved',
+  COMMUNICATION_REJECTED: 'Draft rejected',
+  COMMUNICATION_SENT: 'Email sent',
+  COMMUNICATION_RECEIVED: 'Email received',
+  CLASSIFICATION_PRODUCED: 'AI classification',
+  HARD_TRIGGER_MATCHED: 'Hard trigger matched',
+  ESCALATION_FLAG_RAISED: 'Escalation raised',
+  ESCALATION_FLAG_CLEARED: 'Escalation cleared',
+  BREATHING_SPACE_ACTIVATED: 'Breathing space on',
+  BREATHING_SPACE_DEACTIVATED: 'Breathing space off',
+  S8_ELIGIBILITY_RAISED: 'Section 8 eligible',
+  S8_ELIGIBILITY_RESCINDED: 'Section 8 no longer eligible',
+  HANDLER_ASSIGNED: 'Handler assigned',
+  PROMISE_CREATED: 'Promise logged',
+  PROMISE_FULFILLED: 'Promise fulfilled',
+  PROMISE_BROKEN: 'Promise broken',
+  PROMISE_CANCELLED: 'Promise cancelled',
+};
+
+function eventLabel(kind: string): string {
+  return EVENT_LABELS[kind] ?? titleCase(kind);
+}
+
+function titleCase(s: string): string {
+  return s
+    .toLowerCase()
+    .split('_')
+    .map((w) => (w ? w[0]!.toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
+
+/**
+ * Human-readable summary of an event's payload. Special cases payment
+ * events so the user sees "Received £400 — £800 still outstanding"
+ * instead of a raw JSON blob.
+ */
+function eventSummary(kind: string, p: unknown): string {
+  if (p == null || typeof p !== 'object') return '';
+  const payload = p as Record<string, unknown>;
+  switch (kind) {
+    case 'CHARGE_PARTIALLY_PAID': {
+      const paid = parsePence(payload.deltaPence);
+      const remain = parsePence(payload.remainPence);
+      const gross = parsePence(payload.grossPence);
+      if (paid == null || remain == null || gross == null) break;
+      return `Received ${formatPence(paid)} — ${formatPence(remain)} still outstanding (of ${formatPence(gross)})`;
+    }
+    case 'CHARGE_FULLY_PAID': {
+      const from = payload.previousStatus ?? payload.previousState;
+      return `Invoice settled${from ? ` (was ${String(from).toLowerCase().replace('_', ' ')})` : ''}`;
+    }
+    case 'CASE_CLOSED': {
+      const balancePence = parsePence(payload.balancePence);
+      const count = typeof payload.chargeCount === 'number' ? payload.chargeCount : null;
+      const reason = typeof payload.reason === 'string' ? payload.reason : null;
+      const parts = [];
+      if (balancePence != null) parts.push(`balance ${formatPence(balancePence)}`);
+      if (count != null) parts.push(`${count} charge${count === 1 ? '' : 's'} cleared`);
+      if (reason) parts.push(`(${reason})`);
+      return parts.join(' · ');
+    }
+    case 'CASE_OPENED': {
+      const tenancyId = typeof payload.tenancyId === 'string' ? payload.tenancyId : null;
+      return tenancyId ? `tenancy ${tenancyId}` : '';
+    }
+    case 'CHARGE_ADDED': {
+      const lwca = typeof payload.lwcaInvoiceId === 'string' ? payload.lwcaInvoiceId : '';
+      const gross = parsePence(payload.grossAmountPence);
+      const due = typeof payload.dueDate === 'string'
+        ? new Date(payload.dueDate).toLocaleDateString('en-GB')
+        : null;
+      const parts = [];
+      if (lwca) parts.push(lwca);
+      if (gross != null) parts.push(formatPence(gross));
+      if (due) parts.push(`due ${due}`);
+      return parts.join(' · ');
+    }
+    case 'CHASE_STAGE_ADVANCED': {
+      const from = String(payload.fromStage ?? '');
+      const to = String(payload.toStage ?? '');
+      const wd = payload.workingDaysOverdue;
+      return `${from} → ${to}${typeof wd === 'number' ? ` (WD${wd})` : ''}`;
+    }
+    case 'CHARGE_CADENCE_RESET':
+    case 'CHARGE_CADENCE_STEPPED_BACK': {
+      const target = payload.targetStage ?? payload.previousStage;
+      const ratio = typeof payload.paidRatio === 'number'
+        ? `${Math.round(payload.paidRatio * 100)}% paid`
+        : null;
+      const parts = [];
+      if (ratio) parts.push(ratio);
+      if (target) parts.push(`→ ${String(target)}`);
+      return parts.join(' · ');
+    }
+  }
+  // Fallback: compact JSON so anything we haven't formatted is still
+  // inspectable without ballooning the row.
   try {
     return JSON.stringify(p);
   } catch {
     return '';
   }
+}
+
+function parsePence(v: unknown): bigint | null {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number' && Number.isFinite(v)) return BigInt(Math.trunc(v));
+  if (typeof v === 'string' && /^-?\d+$/.test(v)) {
+    try {
+      return BigInt(v);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
