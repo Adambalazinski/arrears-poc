@@ -56,6 +56,37 @@ model OrganisationCredential {
   @@map("organisation_credential")
 }
 
+// System-wide Outlook OAuth connection. The arrears app uses one shared
+// mailbox across all organisations, so this is a singleton — enforced by
+// `id` being a fixed string literal ("default"). The refresh token is
+// encrypted with the same AES-256-GCM key used for OrganisationCredential.
+//
+// Delegated rather than application creds because application
+// ClientSecretCredential needs RBAC-for-Apps role assignments that fresh
+// M365 tenants don't let Global Admin self-bootstrap. Delegated tokens
+// bypass that — auth as the connecting user, then call Graph against
+// /users/{shared-mailbox} so long as the user has Send-As + Full-Access
+// permission on it.
+model OutlookOAuthConnection {
+  id String @id // literal "default" — singleton
+
+  tenantId   String
+  mailboxUpn String
+  scope      String // space-separated, e.g. "Mail.Send Mail.ReadWrite offline_access"
+
+  // AES-256-GCM ciphertext of the refresh token. Rolled on every refresh.
+  refreshTokenEncrypted Bytes
+  // AES-256-GCM ciphertext of the latest access token (cached for the access window).
+  accessTokenEncrypted Bytes?
+  accessTokenExpiresAt DateTime?
+  lastRefreshedAt      DateTime?
+
+  connectedAt       DateTime @default(now())
+  connectedByUserId String
+
+  @@map("outlook_oauth_connection")
+}
+
 enum CredentialStorageBackend {
   LOCAL
   SECRETS_MANAGER

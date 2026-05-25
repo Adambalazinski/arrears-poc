@@ -32,13 +32,22 @@ vi.mock('@azure/identity', () => ({
 }));
 
 import { OutlookGraphClient } from '../outlook-graph-client';
+import type { OutlookOAuthService } from '../outlook-oauth.service';
 import { OutboundSendError } from '../outlook.types';
+
+// App-mode doesn't use the OAuth service. Pass a throwing stub so any
+// accidental delegated path in these tests fails loudly.
+const stubOAuth = {
+  getValidAccessToken: () => Promise.reject(new Error('app-mode test should not call OAuth')),
+  getStatus: () => Promise.reject(new Error('app-mode test should not call OAuth')),
+} as unknown as OutlookOAuthService;
 
 beforeEach(() => {
   graphApiMock.mockClear();
   postMock.mockReset();
   getMock.mockReset();
   patchMock.mockReset();
+  vi.stubEnv('OUTLOOK_AUTH', 'app');
   vi.stubEnv('OUTLOOK_TENANT_ID', 'tenant');
   vi.stubEnv('OUTLOOK_CLIENT_ID', 'client');
   vi.stubEnv('OUTLOOK_CLIENT_SECRET', 'secret');
@@ -52,7 +61,7 @@ afterEach(() => {
 describe('OutlookGraphClient.sendMail', () => {
   it('posts to /users/{mailbox}/sendMail with HTML body + saveToSentItems', async () => {
     postMock.mockResolvedValue(undefined);
-    const client = new OutlookGraphClient();
+    const client = new OutlookGraphClient(stubOAuth);
     const r = await client.sendMail({
       toAddress: 't@x.com',
       subject: 's',
@@ -75,7 +84,7 @@ describe('OutlookGraphClient.sendMail', () => {
 
   it('wraps Graph errors in OutboundSendError', async () => {
     postMock.mockRejectedValue(new Error('Insufficient privileges'));
-    const client = new OutlookGraphClient();
+    const client = new OutlookGraphClient(stubOAuth);
     await expect(
       client.sendMail({ toAddress: 't', subject: 's', bodyMarkdown: 'b' }),
     ).rejects.toBeInstanceOf(OutboundSendError);
@@ -93,7 +102,7 @@ describe('OutlookGraphClient.sendMail', () => {
         },
       ],
     });
-    const client = new OutlookGraphClient();
+    const client = new OutlookGraphClient(stubOAuth);
     const since = new Date('2026-05-15T07:00:00Z');
     const out = await client.listInbound(since, 50);
     expect(graphApiMock).toHaveBeenCalledWith(
@@ -119,7 +128,7 @@ describe('OutlookGraphClient.sendMail', () => {
       body: { contentType: 'html', content: '<p>Hi <b>there</b></p>' },
       bodyPreview: 'Hi there',
     });
-    const client = new OutlookGraphClient();
+    const client = new OutlookGraphClient(stubOAuth);
     const m = await client.getMessage('msg-1');
     expect(m.bodyHtml).toContain('<p>Hi');
     expect(m.bodyText).toContain('Hi there');
@@ -128,7 +137,7 @@ describe('OutlookGraphClient.sendMail', () => {
   it('markRead PATCHes isRead: true and moveTo POSTs destinationId', async () => {
     patchMock.mockResolvedValue(undefined);
     postMock.mockResolvedValue(undefined);
-    const client = new OutlookGraphClient();
+    const client = new OutlookGraphClient(stubOAuth);
     await client.markRead('msg-1');
     expect(patchMock).toHaveBeenCalledWith({ isRead: true });
     await client.moveTo('msg-1', 'Processed');
@@ -150,8 +159,11 @@ describe('OutlookGraphClient.sendMail', () => {
     delete process.env.OUTLOOK_CLIENT_ID;
     delete process.env.OUTLOOK_CLIENT_SECRET;
     delete process.env.OUTLOOK_SHARED_MAILBOX;
+    // Force app-mode for this assertion so it exercises the env-vars
+    // path and not the delegated path.
+    process.env.OUTLOOK_AUTH = 'app';
     try {
-      const client = new OutlookGraphClient();
+      const client = new OutlookGraphClient(stubOAuth);
       await expect(
         client.sendMail({ toAddress: 't', subject: 's', bodyMarkdown: 'b' }),
       ).rejects.toThrow(/OUTLOOK_TENANT_ID env var is required/);

@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppNav } from '@/components/AppNav';
+import {
+  disconnectOutlook,
+  getOutlookStatus,
+  initiateOutlookConnect,
+  type OutlookOAuthStatus,
+} from '@/lib/api-outlook';
 import {
   getCredentials,
   getOrgConfig,
@@ -34,6 +40,7 @@ export function OrganisationConfigPage(): JSX.Element {
         {config.data && <ConfigForm id={id} initial={config.data} />}
         {config.isLoading && <p className="text-muted-foreground">Loading config…</p>}
         <CredentialsCard id={id} summary={creds.data ?? null} loading={creds.isLoading} />
+        <OutlookConnectionCard />
       </section>
     </main>
   );
@@ -431,4 +438,143 @@ function computePatch(
 function fmtDate(s: string | null | undefined): string {
   if (!s) return '—';
   return new Date(s).toLocaleString('en-GB');
+}
+
+/**
+ * App-wide Outlook OAuth connection. Singleton — same card renders on
+ * every org's config page but they all read/write the one connection
+ * (the shared mailbox is one for the whole arrears app). Lives here
+ * rather than a dedicated route so it's discoverable without adding a
+ * new nav entry.
+ */
+function OutlookConnectionCard(): JSX.Element {
+  const qc = useQueryClient();
+  const status = useQuery({ queryKey: ['outlook-status'], queryFn: getOutlookStatus });
+  const [mailboxUpn, setMailboxUpn] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // On return from the OAuth callback the backend redirects to `/?outlook_connected=1`
+  // (or `?outlook_connect_error=…`). When the user lands back on this page,
+  // refresh the status query so the card flips to "connected" immediately.
+  useEffect(() => {
+    const connected = searchParams.get('outlook_connected');
+    const err = searchParams.get('outlook_connect_error');
+    if (connected || err) {
+      qc.invalidateQueries({ queryKey: ['outlook-status'] });
+      // Strip the params so a refresh doesn't keep re-triggering.
+      const next = new URLSearchParams(searchParams);
+      next.delete('outlook_connected');
+      next.delete('outlook_connect_error');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams, qc]);
+
+  const connect = useMutation({
+    mutationFn: async () => {
+      if (!mailboxUpn) throw new Error('Enter a mailbox UPN first');
+      return initiateOutlookConnect(mailboxUpn);
+    },
+    onSuccess: ({ authorizeUrl }) => {
+      window.location.href = authorizeUrl;
+    },
+  });
+
+  const disconnect = useMutation({
+    mutationFn: disconnectOutlook,
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['outlook-status'] });
+    },
+  });
+
+  return (
+    <div className="border border-border rounded">
+      <header className="px-4 py-3 border-b border-border">
+        <h2 className="text-sm font-medium text-muted-foreground">Outlook connection (app-wide)</h2>
+      </header>
+      <div className="p-4 text-sm space-y-3">
+        {status.isLoading && <p className="text-muted-foreground">Loading…</p>}
+        {status.data && <OutlookConnectionStatus data={status.data} />}
+
+        {!status.data?.connected && (
+          <div className="flex items-end gap-2 pt-1">
+            <label className="flex-1">
+              <span className="block text-xs text-muted-foreground mb-1">Shared mailbox UPN</span>
+              <input
+                type="email"
+                className="w-full border border-input rounded px-2 py-1.5 bg-background text-sm font-mono"
+                placeholder="arrears-test@MindLab168.onmicrosoft.com"
+                value={mailboxUpn}
+                onChange={(e) => setMailboxUpn(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="rounded bg-primary text-primary-foreground px-3 py-1.5 text-sm disabled:opacity-50"
+              disabled={connect.isPending || !mailboxUpn}
+              onClick={() => connect.mutate()}
+            >
+              {connect.isPending ? 'Redirecting…' : 'Connect Outlook'}
+            </button>
+          </div>
+        )}
+
+        {status.data?.connected && (
+          <button
+            type="button"
+            className="rounded border border-destructive text-destructive px-3 py-1.5 text-sm disabled:opacity-50"
+            disabled={disconnect.isPending}
+            onClick={() => {
+              const ok = window.confirm(
+                'Disconnect Outlook? Inbound polling and outbound send will stop until reconnected.',
+              );
+              if (ok) disconnect.mutate();
+            }}
+          >
+            {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
+          </button>
+        )}
+
+        {connect.error && (
+          <p className="text-destructive text-xs">
+            {connect.error instanceof Error ? connect.error.message : 'Connect failed'}
+          </p>
+        )}
+        {disconnect.error && (
+          <p className="text-destructive text-xs">
+            {disconnect.error instanceof Error ? disconnect.error.message : 'Disconnect failed'}
+          </p>
+        )}
+        {searchParams.get('outlook_connect_error') && (
+          <p className="text-destructive text-xs">
+            Connect failed: {searchParams.get('outlook_connect_error')}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OutlookConnectionStatus({ data }: { data: OutlookOAuthStatus }): JSX.Element {
+  if (!data.connected) {
+    return (
+      <p className="text-muted-foreground">
+        Not connected. Outbound + inbound email will not work in <code>OUTBOUND_MODE=outlook</code> /{' '}
+        <code>INBOUND_MODE=outlook</code> mode until you connect a shared mailbox below.
+      </p>
+    );
+  }
+  return (
+    <dl className="grid grid-cols-[140px_1fr] gap-y-1">
+      <dt className="text-muted-foreground">Mailbox</dt>
+      <dd className="font-mono">{data.mailboxUpn}</dd>
+      <dt className="text-muted-foreground">Tenant</dt>
+      <dd className="font-mono text-xs">{data.tenantId}</dd>
+      <dt className="text-muted-foreground">Connected by</dt>
+      <dd className="font-mono text-xs">{data.connectedByUserId}</dd>
+      <dt className="text-muted-foreground">Connected at</dt>
+      <dd>{fmtDate(data.connectedAt)}</dd>
+      <dt className="text-muted-foreground">Last refreshed</dt>
+      <dd>{fmtDate(data.lastRefreshedAt)}</dd>
+    </dl>
+  );
 }
