@@ -113,6 +113,7 @@ function makeJob(): LwcaInvoicePollJob {
     s8,
     chaseTick,
     digest,
+    clock,
   );
 }
 
@@ -277,6 +278,7 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
       s8,
       chaseTick,
       digest,
+      clock,
     );
     await expect(job.runForOrg(ORG_ID)).rejects.toThrow('boom');
 
@@ -320,6 +322,7 @@ describe('LwcaInvoicePollJob.runForOrg — defect 2: stale-charge refresh', () =
       s8,
       chaseTick,
       digest,
+      clock,
     );
   }
 
@@ -437,33 +440,25 @@ describe('LwcaInvoicePollJob.runForOrg — defect 2: stale-charge refresh', () =
 
     let getInvoiceCalls = 0;
     const lwca: LwcaInvoiceClient = {
-      listArrears: () =>
+      // Not used by runForOrg now (job calls listAllRaw + mapPage), but
+      // kept for interface compatibility.
+      listArrears: () => Promise.resolve([]),
+      listAllRaw: () =>
         Promise.resolve([
           {
-            charge: {
-              organisationId: ORG_ID,
-              lwcaInvoiceId: 'inv-still-arrears',
-              dueDate: new Date('2026-03-01T00:00:00Z'),
-              invoiceDate: new Date('2026-02-15T00:00:00Z'),
-              grossAmountPence: 120000n,
-              lastKnownRemainAmountPence: 120000n,
-              lastKnownStatus: 'UNPAID',
-              lastKnownPaymentCycleType: 'MONTHLY',
-              lastKnownType: null,
-              lastKnownDescription: null,
-              lastSyncedAt: new Date(),
-              upstreamReferenceId: null,
-            },
-            tenancy: {
-              tenancyId: 'stale-tenancy-1',
-              propertyId: 'stale-prop',
-              propertyName: null,
-              propertyAddress1: null,
-              propertyAddress2: null,
-            },
+            id: 'inv-still-arrears',
+            organisationId: ORG_ID,
+            grossAmount: 120000,
+            remainAmount: 120000,
+            dueDate: '2026-03-01',
+            invoiceDate: '2026-02-15',
+            status: 'UNPAID',
+            paymentCycleType: 'MONTHLY',
+            tenancyId: 'stale-tenancy-1',
+            property: { propertyId: 'stale-prop' },
+            lineItems: [{ type: 'Rent' }],
           },
         ]),
-      listAllRaw: () => Promise.resolve([]),
       probe: () => Promise.resolve({ ok: true, message: 'ok', latencyMs: 0 }),
       getInvoice: () => {
         getInvoiceCalls++;

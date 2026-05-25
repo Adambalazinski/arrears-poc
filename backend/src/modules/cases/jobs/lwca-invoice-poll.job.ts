@@ -10,6 +10,7 @@ import {
   SyncJobStatus,
   type SyncJobRun,
 } from '@prisma/client';
+import { Clock } from '../../../common/clock/clock.service';
 import { PrismaService } from '../../../integrations/prisma/prisma.service';
 import {
   LWCA_INVOICE_CLIENT,
@@ -17,6 +18,7 @@ import {
 } from '../../../integrations/lwca/lwca-invoice.client';
 import { mapWithConcurrency } from '../../../integrations/lwca/http-lwca-invoice.client';
 import {
+  LwcaInvoiceMapper,
   toBigIntPence,
   type LwcaTenancyHint,
 } from '../../../integrations/lwca/lwca-invoice.mapper';
@@ -92,6 +94,7 @@ export class LwcaInvoicePollJob {
     private readonly s8: S8EvaluationService,
     private readonly chaseTick: ChaseTickService,
     private readonly digest: DigestService,
+    private readonly clock: Clock,
   ) {}
 
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -127,7 +130,11 @@ export class LwcaInvoicePollJob {
     let casesOpened = 0;
     let casesClosed = 0;
     try {
-      const invoices = await this.lwca.listArrears(organisationId);
+      // Mapper-side "today > dueDate" check uses Clock.now() so that
+      // advance-clock / set-clock during testing causes new charges to
+      // appear without having to wait for the real calendar to catch up.
+      const raw = await this.lwca.listAllRaw(organisationId);
+      const invoices = LwcaInvoiceMapper.mapPage(raw, this.clock.now());
       processed = invoices.length;
       const touchedCases = new Set<string>();
       const tenanciesNeedingRefresh = new Set<string>();
