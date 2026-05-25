@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { Clock } from '../../../../common/clock/clock.service';
 import type { BankHolidaysLoader } from '../../../../common/working-day/bank-holidays.loader';
 import type { GovUkBankHolidays } from '../../../../common/working-day/types';
 import { WorkingDayService } from '../../../../common/working-day/working-day.service';
@@ -8,11 +9,17 @@ import type { LwcaInvoiceClient } from '../../../../integrations/lwca/lwca-invoi
 import { FixtureRentancyClient } from '../../../../integrations/rentancy/fixture-rentancy.client';
 import type { PrismaService } from '../../../../integrations/prisma/prisma.service';
 import { ChargesService } from '../../../charges/charges.service';
+import { ChaseTickService } from '../../../chase/chase-tick.service';
+import { DigestService } from '../../../chase/digest/digest.service';
 import { TenancyRefreshService } from '../../../tenancies/tenancy-refresh.service';
 import { CasesService } from '../../cases.service';
 import { S8EvaluationService } from '../../s8-evaluation.service';
 import { LwcaInvoicePollJob } from '../lwca-invoice-poll.job';
 import { DEFAULT_ORG_CONFIG } from '../../../organisations/defaults';
+
+function makeClock(): Clock {
+  return new Clock();
+}
 
 const EMPTY_CALENDAR: GovUkBankHolidays = {
   'england-and-wales': { division: 'england-and-wales', events: [] },
@@ -94,6 +101,9 @@ function makeJob(): LwcaInvoicePollJob {
     rentancy,
   );
   const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
+  const clock = makeClock();
+  const chaseTick = new ChaseTickService(prisma as unknown as PrismaService, makeWorkingDay(), clock);
+  const digest = new DigestService(prisma as unknown as PrismaService, clock);
   return new LwcaInvoicePollJob(
     prisma as unknown as PrismaService,
     lwca,
@@ -101,6 +111,8 @@ function makeJob(): LwcaInvoicePollJob {
     charges,
     tenancyRefresh,
     s8,
+    chaseTick,
+    digest,
   );
 }
 
@@ -253,6 +265,9 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
       new FixtureRentancyClient(RENTANCY_FIXTURE_DIR),
     );
     const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
+    const clock = makeClock();
+    const chaseTick = new ChaseTickService(prisma as unknown as PrismaService, makeWorkingDay(), clock);
+    const digest = new DigestService(prisma as unknown as PrismaService, clock);
     const job = new LwcaInvoicePollJob(
       prisma as unknown as PrismaService,
       failing,
@@ -260,6 +275,8 @@ describe('LwcaInvoicePollJob.runForOrg (fixtures)', () => {
       charges,
       tenancyRefresh,
       s8,
+      chaseTick,
+      digest,
     );
     await expect(job.runForOrg(ORG_ID)).rejects.toThrow('boom');
 
@@ -291,6 +308,9 @@ describe('LwcaInvoicePollJob.runForOrg — defect 2: stale-charge refresh', () =
       rentancy,
     );
     const s8 = new S8EvaluationService(prisma as unknown as PrismaService);
+    const clock = makeClock();
+    const chaseTick = new ChaseTickService(prisma as unknown as PrismaService, makeWorkingDay(), clock);
+    const digest = new DigestService(prisma as unknown as PrismaService, clock);
     return new LwcaInvoicePollJob(
       prisma as unknown as PrismaService,
       lwca,
@@ -298,6 +318,8 @@ describe('LwcaInvoicePollJob.runForOrg — defect 2: stale-charge refresh', () =
       charges,
       tenancyRefresh,
       s8,
+      chaseTick,
+      digest,
     );
   }
 

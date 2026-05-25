@@ -22,6 +22,8 @@ import {
 } from '../../../integrations/lwca/lwca-invoice.mapper';
 import type { LwcaInvoice } from '../../../integrations/lwca/lwca-invoice.types';
 import { ChargesService } from '../../charges/charges.service';
+import { ChaseTickService } from '../../chase/chase-tick.service';
+import { DigestService } from '../../chase/digest/digest.service';
 import { TenancyRefreshService } from '../../tenancies/tenancy-refresh.service';
 import { CasesService } from '../cases.service';
 import { S8EvaluationService } from '../s8-evaluation.service';
@@ -88,6 +90,8 @@ export class LwcaInvoicePollJob {
     private readonly charges: ChargesService,
     private readonly tenancyRefresh: TenancyRefreshService,
     private readonly s8: S8EvaluationService,
+    private readonly chaseTick: ChaseTickService,
+    private readonly digest: DigestService,
   ) {}
 
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -181,6 +185,30 @@ export class LwcaInvoicePollJob {
           }
         }
       }
+      // Run the chase tick + digest inline so any newly-crossed WD
+      // thresholds turn into draft communications in the same request,
+      // not on tomorrow's 09:00 London cron. Without this, an org
+      // synced after 09:00 BST has its chase entries sitting unfired
+      // for ~24 hours.
+      try {
+        const tickResult = await this.chaseTick.runTick();
+        if (tickResult.entriesCreated > 0 || tickResult.stagesAdvanced > 0) {
+          this.logger.log(
+            `lwca-invoice-poll: post-sync tick created=${tickResult.entriesCreated} stagesAdvanced=${tickResult.stagesAdvanced}`,
+          );
+        }
+        const digestResult = await this.digest.runDigest();
+        if (digestResult.digestsCreated > 0) {
+          this.logger.log(
+            `lwca-invoice-poll: post-sync digest evaluated=${digestResult.casesEvaluated} drafts=${digestResult.digestsCreated} entriesFired=${digestResult.entriesFired}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `lwca-invoice-poll: post-sync chase tick / digest failed — ${err instanceof Error ? err.message : err}`,
+        );
+      }
+
       await this.finishRun(run.id, SyncJobStatus.COMPLETED, {
         processed,
         created,
