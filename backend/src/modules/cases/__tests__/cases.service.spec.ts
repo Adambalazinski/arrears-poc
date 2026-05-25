@@ -357,3 +357,115 @@ describe('CasesService — R2 case closes', () => {
     expect(r.closed).toBe(false);
   });
 });
+
+describe('CasesService — setHandler', () => {
+  it('assigns + emits HANDLER_ASSIGNED with actor and payload', async () => {
+    const svc = makeService();
+    const { caseId } = await svc.openOrAttach(ORG_ID, 'tenancy-a');
+
+    const r = await svc.setHandler({
+      caseId,
+      handlerUserId: 'user-alice',
+      actorUserId: 'user-alice',
+    });
+    expect(r.handlerUserId).toBe('user-alice');
+
+    const c = await prisma.case.findUniqueOrThrow({ where: { id: caseId } });
+    expect(c.handlerUserId).toBe('user-alice');
+
+    const events = await prisma.caseEvent.findMany({
+      where: { caseId, kind: 'HANDLER_ASSIGNED' },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.actorUserId).toBe('user-alice');
+    expect(events[0]!.payloadJson).toMatchObject({
+      previousHandlerUserId: null,
+      handlerUserId: 'user-alice',
+    });
+  });
+
+  it('unassign clears the column and records the transition in the timeline', async () => {
+    const svc = makeService();
+    const { caseId } = await svc.openOrAttach(ORG_ID, 'tenancy-b');
+    await svc.setHandler({ caseId, handlerUserId: 'user-alice', actorUserId: 'user-alice' });
+
+    await svc.setHandler({ caseId, handlerUserId: null, actorUserId: 'user-bob' });
+
+    const c = await prisma.case.findUniqueOrThrow({ where: { id: caseId } });
+    expect(c.handlerUserId).toBeNull();
+
+    const events = await prisma.caseEvent.findMany({
+      where: { caseId, kind: 'HANDLER_ASSIGNED' },
+      orderBy: { occurredAt: 'asc' },
+    });
+    expect(events).toHaveLength(2);
+    expect(events[1]!.actorUserId).toBe('user-bob');
+    expect(events[1]!.payloadJson).toMatchObject({
+      previousHandlerUserId: 'user-alice',
+      handlerUserId: null,
+    });
+  });
+
+  it('no-op when the handler is already the target (no duplicate event)', async () => {
+    const svc = makeService();
+    const { caseId } = await svc.openOrAttach(ORG_ID, 'tenancy-c');
+    await svc.setHandler({ caseId, handlerUserId: 'user-alice', actorUserId: 'user-alice' });
+    await svc.setHandler({ caseId, handlerUserId: 'user-alice', actorUserId: 'user-alice' });
+
+    const events = await prisma.caseEvent.findMany({
+      where: { caseId, kind: 'HANDLER_ASSIGNED' },
+    });
+    expect(events).toHaveLength(1);
+  });
+});
+
+describe('CasesService — list surfaces tenants + handler + last-actor', () => {
+  it('exposes handlerUserId and the derived lastActorUserId', async () => {
+    const svc = makeService();
+    const { caseId } = await svc.openOrAttach(ORG_ID, 'tenancy-d');
+
+    // Two events with actors; the latest one is the lastActor.
+    await prisma.caseEvent.create({
+      data: {
+        caseId,
+        kind: 'COMMUNICATION_APPROVED',
+        actorUserId: 'user-bob',
+        occurredAt: new Date('2026-05-20T10:00:00Z'),
+        payloadJson: {},
+      },
+    });
+    await prisma.caseEvent.create({
+      data: {
+        caseId,
+        kind: 'COMMUNICATION_APPROVED',
+        actorUserId: 'user-alice',
+        occurredAt: new Date('2026-05-22T10:00:00Z'),
+        payloadJson: {},
+      },
+    });
+    await svc.setHandler({
+      caseId,
+      handlerUserId: 'user-carol',
+      actorUserId: 'user-carol',
+    });
+
+    const rows = await svc.list(ORG_ID);
+    const row = rows.find((r) => r.id === caseId);
+    expect(row).toBeDefined();
+    expect(row!.handlerUserId).toBe('user-carol');
+    // setHandler also wrote an event with actorUserId=user-carol, which is
+    // the most recent — that's the "last actor" surface.
+    expect(row!.lastActorUserId).toBe('user-carol');
+    expect(row!.lastActorAt).not.toBeNull();
+  });
+
+  it('reports null lastActor when no event has an actor', async () => {
+    const svc = makeService();
+    const { caseId } = await svc.openOrAttach(ORG_ID, 'tenancy-e');
+    const rows = await svc.list(ORG_ID);
+    const row = rows.find((r) => r.id === caseId);
+    expect(row!.handlerUserId).toBeNull();
+    expect(row!.lastActorUserId).toBeNull();
+    expect(row!.lastActorAt).toBeNull();
+  });
+});

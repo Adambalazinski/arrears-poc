@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppNav } from '@/components/AppNav';
+import { useAuth } from '@/lib/auth';
 import {
   activateBreathingSpace,
   cancelPromise,
@@ -12,6 +13,7 @@ import {
   getCase,
   propertyLine,
   refreshCase,
+  setHandler,
   tenantNameFromDetail,
   type BreathingSpaceSource,
   type CaseEventRow,
@@ -139,8 +141,86 @@ function SummaryCard({ c }: { c: CaseRowDetail }): JSX.Element {
           <dd>{c.breathingSpaceActive ? 'ACTIVE' : 'no'}</dd>
           <dt className="text-muted-foreground">Awaiting handler</dt>
           <dd>{c.awaitingHandlerAction ? 'YES' : 'no'}</dd>
+          <dt className="text-muted-foreground">Handler</dt>
+          <dd>
+            <HandlerControls
+              caseId={c.id}
+              handlerUserId={c.handlerUserId}
+              lastActorUserId={c.lastActorUserId}
+              lastActorAt={c.lastActorAt}
+            />
+          </dd>
         </dl>
       </div>
+    </div>
+  );
+}
+
+function HandlerControls({
+  caseId,
+  handlerUserId,
+  lastActorUserId,
+  lastActorAt,
+}: {
+  caseId: string;
+  handlerUserId: string | null;
+  lastActorUserId: string | null;
+  lastActorAt: string | null;
+}): JSX.Element {
+  const auth = useAuth();
+  const qc = useQueryClient();
+  const mutate = useMutation({
+    mutationFn: (next: string | null) => setHandler(caseId, next),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['case', caseId] });
+    },
+  });
+  const me = auth.user?.id ?? null;
+  const isMe = handlerUserId && me && handlerUserId === me;
+  return (
+    <div className="flex items-baseline gap-2 flex-wrap">
+      {handlerUserId ? (
+        <span className="text-sm font-mono">
+          {handlerUserId}
+          {isMe && <span className="text-muted-foreground"> (you)</span>}
+        </span>
+      ) : lastActorUserId ? (
+        <span
+          className="text-sm font-mono text-muted-foreground"
+          title={lastActorAt ? `Last actioned ${new Date(lastActorAt).toLocaleString('en-GB')}` : ''}
+        >
+          {lastActorUserId} <span className="italic">(last)</span>
+        </span>
+      ) : (
+        <span className="text-sm text-muted-foreground">unassigned</span>
+      )}
+      <div className="ml-auto flex gap-2">
+        {!isMe && me && (
+          <button
+            type="button"
+            className="text-xs underline disabled:opacity-50"
+            disabled={mutate.isPending}
+            onClick={() => mutate.mutate(me)}
+          >
+            assign to me
+          </button>
+        )}
+        {handlerUserId && (
+          <button
+            type="button"
+            className="text-xs underline text-muted-foreground disabled:opacity-50"
+            disabled={mutate.isPending}
+            onClick={() => mutate.mutate(null)}
+          >
+            unassign
+          </button>
+        )}
+      </div>
+      {mutate.error && (
+        <p className="text-destructive text-xs basis-full">
+          {mutate.error instanceof Error ? mutate.error.message : 'failed'}
+        </p>
+      )}
     </div>
   );
 }

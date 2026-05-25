@@ -5,6 +5,7 @@ import { AppNav } from '@/components/AppNav';
 import { useAuth } from '@/lib/auth';
 import {
   formatPence,
+  formatTenants,
   listCases,
   maxWorkingDaysOverdue,
   mostSevereStage,
@@ -163,10 +164,12 @@ export function CasesListPage(): JSX.Element {
                 <tr>
                   <Th>Tenancy</Th>
                   <Th>Reference</Th>
+                  <Th>Tenant</Th>
                   <Th>Property</Th>
                   <Th>Balance</Th>
                   <Th>WD overdue</Th>
                   <Th>Stage</Th>
+                  <Th>Handler</Th>
                   <Th>Flags</Th>
                   <Th>Last synced</Th>
                 </tr>
@@ -189,10 +192,18 @@ export function CasesListPage(): JSX.Element {
                         )}
                       </span>
                     </Td>
+                    <Td>
+                      <span className="text-xs">
+                        {formatTenants(c.tenancy.tenancyContacts ?? [])}
+                      </span>
+                    </Td>
                     <Td>{propertyLine(c.tenancy)}</Td>
                     <Td>{formatPence(c.lastKnownBalancePence)}</Td>
                     <Td>{maxWorkingDaysOverdue(c.charges)}</Td>
                     <Td>{mostSevereStage(c.charges)}</Td>
+                    <Td>
+                      <HandlerCell row={c} />
+                    </Td>
                     <Td>
                       <Flags row={c} />
                     </Td>
@@ -214,6 +225,32 @@ function Th({ children }: { children: React.ReactNode }): JSX.Element {
 
 function Td({ children }: { children: React.ReactNode }): JSX.Element {
   return <td className="px-3 py-2 align-top">{children}</td>;
+}
+
+/**
+ * Handler column on the cases list. Prefer the explicit `handlerUserId`
+ * if set, otherwise fall back to the derived "last actor" with a small
+ * "(last)" hint so the reader knows it's inferred rather than assigned.
+ */
+function HandlerCell({ row }: { row: CaseRowListed }): JSX.Element {
+  if (row.handlerUserId) {
+    return <span className="text-xs">{row.handlerUserId}</span>;
+  }
+  if (row.lastActorUserId) {
+    return (
+      <span
+        className="text-xs text-muted-foreground"
+        title={
+          row.lastActorAt
+            ? `Last actioned ${new Date(row.lastActorAt).toLocaleString('en-GB')}`
+            : 'Last actor'
+        }
+      >
+        {row.lastActorUserId} <span className="italic">(last)</span>
+      </span>
+    );
+  }
+  return <span className="text-muted-foreground">—</span>;
 }
 
 function Flags({ row }: { row: CaseRowListed }): JSX.Element {

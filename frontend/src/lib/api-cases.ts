@@ -64,10 +64,42 @@ export interface CaseRowListed {
   s8Eligible: boolean;
   breathingSpaceActive: boolean;
   awaitingHandlerAction: boolean;
+  /** Explicitly assigned handler. null when no one's claimed the case. */
+  handlerUserId: string | null;
+  /** Fallback: actor on the most recent CaseEvent with a non-null actorUserId. */
+  lastActorUserId: string | null;
+  lastActorAt: string | null;
   createdAt: string;
   updatedAt: string;
-  tenancy: TenancyRow;
+  tenancy: TenancyRow & { tenancyContacts: TenancyContactRow[] };
   charges: ChargeRowSummary[];
+}
+
+export const setHandler = (caseId: string, handlerUserId: string | null) =>
+  apiJson<{ caseId: string; handlerUserId: string | null }>(
+    `/api/cases/${encodeURIComponent(caseId)}/handler`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handlerUserId }),
+    },
+  );
+
+/** Returns a short display string for the tenants on a tenancy (max 2 names listed). */
+export function formatTenants(tenancyContacts: TenancyContactRow[]): string {
+  const tenants = tenancyContacts.filter((tc) => tc.role === 'TENANT');
+  if (tenants.length === 0) return '—';
+  const names = tenants.map((tc) => contactDisplayName(tc.contact));
+  if (names.length <= 2) return names.join(', ');
+  return `${names[0]}, ${names[1]} +${names.length - 2}`;
+}
+
+function contactDisplayName(c: ContactRow): string {
+  if (c.companyName) return c.companyName;
+  const first = c.firstName?.trim() ?? '';
+  const last = c.lastName?.trim() ?? '';
+  const joined = `${first} ${last}`.trim();
+  return joined || c.primaryEmail || '(unnamed)';
 }
 
 export interface ContactRow {

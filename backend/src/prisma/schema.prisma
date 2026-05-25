@@ -209,6 +209,11 @@ model Case {
   breathingSpaceActive  Boolean @default(false)
   awaitingHandlerAction Boolean @default(false)
 
+  // Optional explicit case handler. Free-form user id (Cognito sub or a
+  // POC dev id) — null means unassigned, and the UI falls back to
+  // surfacing the "last actor" derived from CaseEvent.actorUserId.
+  handlerUserId String?
+
   charges               Charge[]
   events                CaseEvent[]
   chaseScheduleEntries  ChaseScheduleEntry[]

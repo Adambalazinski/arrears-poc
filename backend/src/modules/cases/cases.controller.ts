@@ -1,12 +1,29 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { CaseStatus } from '@prisma/client';
 import { z } from 'zod';
 import { ZodBody } from '../../common/zod/zod-validation.pipe';
 import { AuthGuard } from '../auth/auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { RequestUser } from '../auth/types';
 import { TenancyRefreshService } from '../tenancies/tenancy-refresh.service';
 import { BreathingSpaceService } from './breathing-space.service';
 import { CasesService } from './cases.service';
 import { LwcaInvoicePollJob } from './jobs/lwca-invoice-poll.job';
+
+const SetHandlerSchema = z.object({
+  // null = unassign; string = explicit user id (Cognito sub or local dev id).
+  handlerUserId: z.string().min(1).nullable(),
+});
 
 const ActivateBreathingSpaceSchema = z.object({
   source: z.enum(['FORMAL_NOTIFICATION', 'TENANT_EMAIL_MENTION']),
@@ -64,6 +81,20 @@ export class CasesController {
     dto: z.infer<typeof ActivateBreathingSpaceSchema>,
   ) {
     return this.breathingSpace.activate({ caseId: id, source: dto.source, note: dto.note });
+  }
+
+  @Patch('cases/:id/handler')
+  @HttpCode(200)
+  setHandler(
+    @Param('id') id: string,
+    @Body(new ZodBody(SetHandlerSchema)) dto: z.infer<typeof SetHandlerSchema>,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.cases.setHandler({
+      caseId: id,
+      handlerUserId: dto.handlerUserId,
+      actorUserId: user.id,
+    });
   }
 
   @Post('cases/:id/breathing-space/deactivate')

@@ -187,12 +187,30 @@ export class CasesService {
     });
   }
 
-  list(organisationId: string, status?: CaseStatus) {
-    return this.prisma.case.findMany({
+  async list(organisationId: string, status?: CaseStatus) {
+    const cases = await this.prisma.case.findMany({
       where: { organisationId, ...(status ? { status } : {}) },
       orderBy: [{ status: 'asc' }, { openedAt: 'desc' }],
       include: {
-        tenancy: true,
+        tenancy: {
+          include: {
+            // Only TENANT-role contacts surface in the cases-list "Tenant"
+            // column; guarantors are visible on the case detail page.
+            tenancyContacts: {
+              where: { role: 'TENANT' },
+              include: {
+                contact: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    companyName: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         charges: {
           select: {
             id: true,
@@ -208,6 +226,32 @@ export class CasesService {
         },
       },
     });
+
+    // Derived "last actor": the most recent CaseEvent on each case with
+    // a non-null actorUserId. Used as a fallback for the cases-list
+    // Handler column when handlerUserId is unset.
+    const caseIds = cases.map((c) => c.id);
+    const recentActors =
+      caseIds.length === 0
+        ? []
+        : await this.prisma.caseEvent.findMany({
+            where: { caseId: { in: caseIds }, actorUserId: { not: null } },
+            orderBy: { occurredAt: 'desc' },
+            distinct: ['caseId'],
+            select: { caseId: true, actorUserId: true, occurredAt: true },
+          });
+    const lastActorByCase = new Map(
+      recentActors.map((e) => [
+        e.caseId,
+        { userId: e.actorUserId, at: e.occurredAt },
+      ]),
+    );
+
+    return cases.map((c) => ({
+      ...c,
+      lastActorUserId: lastActorByCase.get(c.id)?.userId ?? null,
+      lastActorAt: lastActorByCase.get(c.id)?.at ?? null,
+    }));
   }
 
   async getDetail(caseId: string) {
@@ -253,7 +297,58 @@ export class CasesService {
       },
     });
     if (!found) throw new NotFoundException(`Case ${caseId} not found`);
-    return found;
+
+    const lastActor = await this.prisma.caseEvent.findFirst({
+      where: { caseId, actorUserId: { not: null } },
+      orderBy: { occurredAt: 'desc' },
+      select: { actorUserId: true, occurredAt: true },
+    });
+
+    return {
+      ...found,
+      lastActorUserId: lastActor?.actorUserId ?? null,
+      lastActorAt: lastActor?.occurredAt ?? null,
+    };
+  }
+
+  /**
+   * Assign or unassign the case handler. Pass `null` to clear. Emits a
+   * HANDLER_ASSIGNED case event with the actor recorded in
+   * `actorUserId` and the new handler id in the payload so the
+   * timeline shows who did what.
+   */
+  async setHandler(input: {
+    caseId: string;
+    handlerUserId: string | null;
+    actorUserId: string;
+  }): Promise<{ caseId: string; handlerUserId: string | null }> {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.case.findUnique({
+        where: { id: input.caseId },
+        select: { id: true, handlerUserId: true },
+      });
+      if (!existing) throw new NotFoundException(`Case ${input.caseId} not found`);
+      if (existing.handlerUserId === input.handlerUserId) {
+        return { caseId: existing.id, handlerUserId: existing.handlerUserId };
+      }
+      const updated = await tx.case.update({
+        where: { id: input.caseId },
+        data: { handlerUserId: input.handlerUserId },
+        select: { id: true, handlerUserId: true },
+      });
+      await tx.caseEvent.create({
+        data: {
+          caseId: input.caseId,
+          kind: CaseEventKind.HANDLER_ASSIGNED,
+          actorUserId: input.actorUserId,
+          payloadJson: {
+            previousHandlerUserId: existing.handlerUserId,
+            handlerUserId: input.handlerUserId,
+          },
+        },
+      });
+      return { caseId: updated.id, handlerUserId: updated.handlerUserId };
+    });
   }
 }
 
