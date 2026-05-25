@@ -103,6 +103,7 @@ Behind `DEV_TOOLS_ENABLED=true` in `backend/.env` (default). All require an auth
 | `POST /dev/run-promise-expiry`                  | Run the promise-expiry job inline (skip the 09:00 cron)                 |
 | `GET  /dev/clock`                               | Show the current Clock offset                                           |
 | `POST /dev/advance-clock`                       | `{"workingDays":N}` or `{"hours":N}` (exactly one) — bump clock + run chase tick + run digest inline. Working-day mode snaps to 10:00 London; hours mode is a plain offset. |
+| `POST /dev/set-clock`                           | `{"iso":"<ISO 8601 with offset>"}` or `{"todayAt":"HH:mm[:ss]"}` (exactly one) — jump to an absolute moment, then run chase tick + digest inline. Useful for testing the 09:00 London digest boundary. Can move the clock backwards. |
 | `POST /dev/reset-clock`                         | Reset Clock offset to zero                                              |
 | `GET  /dev/fixture-emails`                      | List `.eml` fixture filenames available to seed                         |
 | `POST /dev/seed-fixture-emails/:caseId`         | Drop one or all fixture emails onto a case + run inbound pipeline       |

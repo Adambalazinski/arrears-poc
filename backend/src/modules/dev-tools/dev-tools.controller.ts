@@ -26,6 +26,20 @@ import { ResetDemoService } from './reset-demo.service';
 import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
 import { Inject } from '@nestjs/common';
 
+const SetClockSchema = z
+  .object({
+    /** Full ISO 8601 timestamp with offset, e.g. "2026-05-25T09:00:00+01:00". */
+    iso: z.string().datetime({ offset: true }).optional(),
+    /**
+     * Wall-clock time on TODAY in Europe/London, as "HH:mm" or "HH:mm:ss".
+     * Most useful for testing the daily digest, which fires at 09:00 London.
+     */
+    todayAt: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
+  })
+  .refine((v) => (v.iso != null) !== (v.todayAt != null), {
+    message: 'Provide exactly one of iso or todayAt',
+  });
+
 const AdvanceClockSchema = z
   .object({
     /**
@@ -223,6 +237,45 @@ export class DevToolsController {
     };
   }
 
+  /**
+   * Set the clock to a specific moment. Two input flavours:
+   *   - `iso`:    full ISO 8601 with offset, absolute.
+   *   - `todayAt`: "HH:mm[:ss]" interpreted in Europe/London for today's date.
+   *
+   * Most useful for testing the daily-digest pipeline at the 09:00
+   * London boundary. After setting, runs the chase tick and the digest
+   * inline so the same request shows the effect.
+   *
+   * Unlike advance-clock this can move the clock *backwards*; useful
+   * for "rewind to just before the digest fires, then nudge forward".
+   */
+  @Post('set-clock')
+  @HttpCode(200)
+  async setClock(
+    @Body(new ZodBody(SetClockSchema)) body: { iso?: string; todayAt?: string },
+  ) {
+    this.assertEnabled();
+    const before = this.clock.now();
+    const target = body.iso != null ? new Date(body.iso) : todayAtLondon(body.todayAt!);
+    if (Number.isNaN(target.getTime())) {
+      throw new BadRequestException(`Invalid target: ${body.iso ?? body.todayAt}`);
+    }
+    const deltaMs = target.getTime() - before.getTime();
+    this.clock.advanceMs(deltaMs);
+
+    const tickResult = await this.chaseTick.runTick();
+    const digestResult = await this.digest.runDigest();
+
+    return {
+      before: before.toISOString(),
+      target: target.toISOString(),
+      after: this.clock.now().toISOString(),
+      deltaMs,
+      chaseTick: tickResult,
+      digest: digestResult,
+    };
+  }
+
   @Post('reset-clock')
   @HttpCode(200)
   reset() {
@@ -265,4 +318,39 @@ export class DevToolsController {
       throw new ForbiddenException('Dev tools are not enabled (set DEV_TOOLS_ENABLED=true)');
     }
   }
+}
+
+/**
+ * Given "HH:mm" or "HH:mm:ss", return the UTC Date for that wall-clock
+ * moment today in Europe/London. Auto-handles BST vs GMT by probing the
+ * tz offset for today's date.
+ */
+function todayAtLondon(hhmmss: string): Date {
+  const todayLondonYmd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const offsetStr = londonOffsetForYmd(todayLondonYmd);
+  const time = hhmmss.length === 5 ? `${hhmmss}:00` : hhmmss;
+  return new Date(`${todayLondonYmd}T${time}${offsetStr}`);
+}
+
+function londonOffsetForYmd(ymd: string): string {
+  // Probe at noon UTC on the requested day — safely away from the
+  // 01:00 UTC DST-transition boundary.
+  const probe = new Date(`${ymd}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    timeZoneName: 'shortOffset',
+  }).formatToParts(probe);
+  const tz = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
+  if (tz === 'GMT') return '+00:00';
+  const match = tz.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
+  if (!match) return '+00:00';
+  const sign = match[1] ?? '+';
+  const hh = (match[2] ?? '0').padStart(2, '0');
+  const mm = match[3] ?? '00';
+  return `${sign}${hh}:${mm}`;
 }
