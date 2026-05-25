@@ -102,7 +102,7 @@ Behind `DEV_TOOLS_ENABLED=true` in `backend/.env` (default). All require an auth
 | `POST /dev/run-inbound-poll`                    | Run the Outlook inbound poll inline (skip the 5-min cron)               |
 | `POST /dev/run-promise-expiry`                  | Run the promise-expiry job inline (skip the 09:00 cron)                 |
 | `GET  /dev/clock`                               | Show the current Clock offset                                           |
-| `POST /dev/advance-clock`                       | `{"workingDays":N}` — bump clock + run chase tick + run digest inline   |
+| `POST /dev/advance-clock`                       | `{"workingDays":N}` or `{"hours":N}` (exactly one) — bump clock + run chase tick + run digest inline. Working-day mode snaps to 10:00 London; hours mode is a plain offset. |
 | `POST /dev/reset-clock`                         | Reset Clock offset to zero                                              |
 | `GET  /dev/fixture-emails`                      | List `.eml` fixture filenames available to seed                         |
 | `POST /dev/seed-fixture-emails/:caseId`         | Drop one or all fixture emails onto a case + run inbound pipeline       |

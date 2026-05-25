@@ -26,9 +26,24 @@ import { ResetDemoService } from './reset-demo.service';
 import { SeedFixtureEmailsService } from './seed-fixture-emails.service';
 import { Inject } from '@nestjs/common';
 
-const AdvanceClockSchema = z.object({
-  workingDays: z.number().int().min(1).max(60),
-});
+const AdvanceClockSchema = z
+  .object({
+    /**
+     * Snaps to 10:00 London on the target working day so chase entries
+     * (dueAt=09:00) fire in the same request. 1..60 inclusive.
+     */
+    workingDays: z.number().int().min(1).max(60).optional(),
+    /**
+     * Plain hour-level advance. Useful when you want to land at a
+     * specific point inside the day (e.g. just past 09:00 to fire the
+     * digest, or just past midnight to roll the day over). No snap.
+     * 1..240 inclusive (= 10 days max).
+     */
+    hours: z.number().int().min(1).max(240).optional(),
+  })
+  .refine((v) => (v.workingDays != null) !== (v.hours != null), {
+    message: 'Provide exactly one of workingDays or hours',
+  });
 
 const SeedFixtureEmailsSchema = z.object({
   fixture: z.string().regex(/\.eml$/).optional(),
@@ -170,19 +185,27 @@ export class DevToolsController {
    */
   @Post('advance-clock')
   @HttpCode(200)
-  async advance(@Body(new ZodBody(AdvanceClockSchema)) body: { workingDays: number }) {
+  async advance(
+    @Body(new ZodBody(AdvanceClockSchema))
+    body: { workingDays?: number; hours?: number },
+  ) {
     this.assertEnabled();
     const before = this.clock.now();
-    const after = this.workingDay.addWorkingDays(before, body.workingDays);
-    // Snap to 10:00 London on the target working day so any
-    // ChaseScheduleEntry rows created by the immediately-following chase
-    // tick (which set dueAt=09:00 London) will fire in the same
-    // synchronous digest call. Without this snap, the entries' dueAt is
-    // ~9 hours ahead of the clock and the digest produces no drafts.
-    const target = new Date(todayAt9LondonAsUtc(after).getTime() + 60 * 60 * 1000);
-    const deltaMs = target.getTime() - before.getTime();
+    let deltaMs: number;
+    if (body.workingDays != null) {
+      // Working-day mode: jump to 10:00 London on the target working day
+      // so any chase entries created by the synchronous tick (which set
+      // dueAt=09:00 London) fall due before the digest runs.
+      const after = this.workingDay.addWorkingDays(before, body.workingDays);
+      const target = new Date(todayAt9LondonAsUtc(after).getTime() + 60 * 60 * 1000);
+      deltaMs = target.getTime() - before.getTime();
+    } else {
+      // Hour mode: plain ms advance, no snap. The Zod schema guarantees
+      // exactly one of workingDays / hours is provided.
+      deltaMs = body.hours! * 60 * 60 * 1000;
+    }
     if (deltaMs <= 0) {
-      throw new BadRequestException('addWorkingDays returned a non-positive delta');
+      throw new BadRequestException(`advance produced a non-positive delta (${deltaMs}ms)`);
     }
     this.clock.advanceMs(deltaMs);
 
@@ -192,7 +215,8 @@ export class DevToolsController {
     return {
       before: before.toISOString(),
       after: this.clock.now().toISOString(),
-      workingDaysAdvanced: body.workingDays,
+      workingDaysAdvanced: body.workingDays ?? null,
+      hoursAdvanced: body.hours ?? null,
       deltaMs,
       chaseTick: tickResult,
       digest: digestResult,
