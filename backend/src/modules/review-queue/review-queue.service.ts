@@ -254,7 +254,12 @@ export class ReviewQueueService {
     if (!item.communication) {
       throw new ConflictException(`ReviewQueueItem ${itemId} has no linked Communication`);
     }
-    if (item.communication.status !== 'AWAITING_APPROVAL') {
+    // SEND_FAILED is retry-able: the draft is already approved-and-sent
+    // in intent, just the outbound call failed. Re-running approve will
+    // re-attempt the send. Anything else (SENT, REJECTED, etc.) means
+    // the comm is in a terminal state and can't be re-approved.
+    const retryableStatuses = ['AWAITING_APPROVAL', 'SEND_FAILED'];
+    if (!retryableStatuses.includes(item.communication.status)) {
       throw new ConflictException(
         `Communication ${item.communication.id} is ${item.communication.status}; cannot approve`,
       );
