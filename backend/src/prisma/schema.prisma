@@ -291,6 +291,7 @@ model Charge {
   lastKnownPaymentCycleType  String? // RECURRING etc. — recurring charges excluded from arrears
   lastKnownType              String? // LWCA invoice.type (RENT / DEPOSIT / etc.)
   lastKnownDescription       String? // LWCA invoice.description — free-text label from upstream
+  lastKnownReferenceId       String? // LWCA invoice.referenceId (e.g. "#1Joj3F") — what tenants see in chase emails
   lastSyncedAt               DateTime
 
   // Per-charge cadence state

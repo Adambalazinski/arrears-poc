@@ -37,7 +37,7 @@ interface CaseWithContext extends Case {
   };
   charges: Charge[];
   chaseScheduleEntries: ChaseScheduleEntry[];
-  organisation: { config: OrganisationConfig | null };
+  organisation: { name: string; config: OrganisationConfig | null };
 }
 
 const ARREARS_STATUSES = new Set(['UNPAID', 'PARTIALLY_PAID', 'PARTIALLY_RECONCILED']);
@@ -367,7 +367,9 @@ function buildContext(
     .filter(Boolean)
     .join(', ');
   const chargeLines = overdueCharges.map((ch) => ({
-    referenceId: ch.lwcaInvoiceId,
+    // Prefer the upstream human-readable reference; fall back to the
+    // internal UUID for charges synced before the column existed.
+    referenceId: ch.lastKnownReferenceId ?? ch.lwcaInvoiceId,
     dueDateFormatted: DATE.format(ch.dueDate),
     grossAmountFormatted: GBP.format(Number(ch.grossAmountPence) / 100),
     remainAmountFormatted: GBP.format(Number(ch.lastKnownRemainAmountPence) / 100),
@@ -420,8 +422,11 @@ function buildContext(
     charges: chargeLines,
     mostOverdueCharge: mostOverdue,
     agency: {
-      // Step 5.3 will pull this from OrganisationConfig once those fields exist.
-      name: 'Lettings agency',
+      // Org name is the customer's trading-as identity (e.g. "Foxtons
+      // Manchester"). Reply email is still a placeholder — when on a
+      // real customer tenant this would be the OutlookOAuthConnection
+      // mailboxUpn, threaded through. Left for a follow-up.
+      name: c.organisation.name,
       replyEmail: 'arrears@example.com',
     },
   };

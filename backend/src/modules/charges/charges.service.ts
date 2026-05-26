@@ -85,6 +85,7 @@ export class ChargesService {
             lastKnownPaymentCycleType: input.lastKnownPaymentCycleType,
             lastKnownType: input.lastKnownType,
             lastKnownDescription: input.lastKnownDescription,
+            lastKnownReferenceId: input.upstreamReferenceId,
             lastSyncedAt: input.lastSyncedAt,
           },
         });
@@ -105,6 +106,7 @@ export class ChargesService {
           lastKnownPaymentCycleType: input.lastKnownPaymentCycleType,
           lastKnownType: input.lastKnownType,
           lastKnownDescription: input.lastKnownDescription,
+          lastKnownReferenceId: input.upstreamReferenceId,
           lastSyncedAt: input.lastSyncedAt,
         },
       });
