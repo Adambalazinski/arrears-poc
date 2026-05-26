@@ -217,7 +217,11 @@ model Contact {
   lastName    String?
   companyName String?
 
-  primaryEmail String? // canonical, used for matching inbound mail
+  primaryEmail String? // canonical, used for display + as the address we send TO
+  // Lowercased + plus-addressing stripped form of primaryEmail. Indexed
+  // so the inbound-sender matcher can resolve "user@host" inbound to a
+  // contact stored as "user+tag@host" without scanning every Contact row.
+  normalisedPrimaryEmail String?
   emailsJson   Json // full list from Rentancy
   phonesJson   Json
   lastSyncedAt DateTime
@@ -229,6 +233,7 @@ model Contact {
 
   @@unique([organisationId, primaryEmail])
   @@index([organisationId])
+  @@index([normalisedPrimaryEmail])
   @@map("contact")
 }
 

@@ -6,6 +6,7 @@ import {
   RENTANCY_CLIENT,
   type RentancyTenancyClient,
 } from '../../integrations/rentancy/rentancy.client';
+import { InboundSenderMatcher } from '../inbound/inbound-sender-matcher.service';
 
 export interface RentancyRefreshResult {
   tenancyId: string;
@@ -96,6 +97,9 @@ export class TenancyRefreshService {
 
       for (const c of contacts) {
         if (!c) continue;
+        const normalised = c.primaryEmail
+          ? InboundSenderMatcher.normaliseEmail(c.primaryEmail)
+          : null;
         await tx.contact.upsert({
           where: { id: c.contactId },
           create: {
@@ -105,6 +109,7 @@ export class TenancyRefreshService {
             lastName: c.lastName,
             companyName: c.companyName,
             primaryEmail: c.primaryEmail,
+            normalisedPrimaryEmail: normalised,
             emailsJson: c.emailsJson as unknown as Prisma.InputJsonValue,
             phonesJson: c.phonesJson as unknown as Prisma.InputJsonValue,
             lastSyncedAt: now,
@@ -114,6 +119,7 @@ export class TenancyRefreshService {
             lastName: c.lastName,
             companyName: c.companyName,
             primaryEmail: c.primaryEmail,
+            normalisedPrimaryEmail: normalised,
             emailsJson: c.emailsJson as unknown as Prisma.InputJsonValue,
             phonesJson: c.phonesJson as unknown as Prisma.InputJsonValue,
             lastSyncedAt: now,

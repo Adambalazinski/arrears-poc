@@ -45,8 +45,12 @@ export class InboundSenderMatcher {
     if (!normalisedEmail.includes('@')) {
       return { kind: 'UNMATCHED', normalisedEmail };
     }
+    // Query on the indexed normalisedPrimaryEmail column so a reply
+    // from "user@host" routes to a contact stored as "user+tag@host"
+    // (and vice versa). Backfilled by the 20260526131047 migration;
+    // tenancy-refresh keeps it in sync on every contact write.
     const matches = await this.prisma.contact.findMany({
-      where: { primaryEmail: normalisedEmail },
+      where: { normalisedPrimaryEmail: normalisedEmail },
       select: { id: true, organisationId: true },
     });
     if (matches.length === 0) return { kind: 'UNMATCHED', normalisedEmail };
