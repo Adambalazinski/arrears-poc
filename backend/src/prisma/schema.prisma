@@ -56,6 +56,39 @@ model OrganisationCredential {
   @@map("organisation_credential")
 }
 
+// Generic IMAP+SMTP mailbox connection — Gmail, Fastmail, anything that
+// speaks standard IMAP/SMTP with App-Password auth. Parallel to
+// OutlookOAuthConnection (the Graph-API path). Singleton, id="default".
+// The App Password is encrypted with the same AES-256-GCM key as the
+// other credential blobs.
+//
+// Use this when the customer is on a fresh M365 tenant being throttled by
+// Microsoft's outbound spam policy, or simply doesn't have an Outlook
+// mailbox. Same OutlookClient interface so the chase/inbound pipeline
+// doesn't care which path is active — picked via OUTBOUND_MODE /
+// INBOUND_MODE env switches.
+model ImapSmtpConnection {
+  id String @id // literal "default" — singleton
+
+  mailboxAddress String
+
+  imapHost String @default("imap.gmail.com")
+  imapPort Int    @default(993)
+
+  smtpHost String @default("smtp.gmail.com")
+  smtpPort Int    @default(587)
+
+  // App Password (or service-account password) — never the user's
+  // primary login password. AES-256-GCM ciphertext.
+  appPasswordEncrypted Bytes
+
+  connectedAt       DateTime @default(now())
+  connectedByUserId String
+  lastUsedAt        DateTime?
+
+  @@map("imap_smtp_connection")
+}
+
 // System-wide Outlook OAuth connection. The arrears app uses one shared
 // mailbox across all organisations, so this is a singleton — enforced by
 // `id` being a fixed string literal ("default"). The refresh token is

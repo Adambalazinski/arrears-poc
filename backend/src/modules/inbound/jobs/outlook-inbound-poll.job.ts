@@ -284,5 +284,8 @@ export class OutlookInboundPollJob {
 }
 
 function isInboundEnabled(): boolean {
-  return (process.env.INBOUND_MODE ?? 'disabled').toLowerCase() === 'outlook';
+  const mode = (process.env.INBOUND_MODE ?? 'disabled').toLowerCase();
+  // Both "outlook" (Microsoft Graph) and "gmail" (generic IMAP) drive
+  // the same poll loop — the OUTLOOK_CLIENT factory swaps the impl.
+  return mode === 'outlook' || mode === 'gmail';
 }

@@ -9,6 +9,12 @@ import {
   type OutlookOAuthStatus,
 } from '@/lib/api-outlook';
 import {
+  connectImapSmtp,
+  disconnectImapSmtp,
+  getImapSmtpStatus,
+  type ImapSmtpStatus,
+} from '@/lib/api-imap-smtp';
+import {
   getCredentials,
   getOrgConfig,
   getOrganisation,
@@ -41,6 +47,7 @@ export function OrganisationConfigPage(): JSX.Element {
         {config.isLoading && <p className="text-muted-foreground">Loading config…</p>}
         <CredentialsCard id={id} summary={creds.data ?? null} loading={creds.isLoading} />
         <OutlookConnectionCard />
+        <ImapSmtpConnectionCard />
       </section>
     </main>
   );
@@ -575,6 +582,211 @@ function OutlookConnectionStatus({ data }: { data: OutlookOAuthStatus }): JSX.El
       <dd>{fmtDate(data.connectedAt)}</dd>
       <dt className="text-muted-foreground">Last refreshed</dt>
       <dd>{fmtDate(data.lastRefreshedAt)}</dd>
+    </dl>
+  );
+}
+
+/**
+ * IMAP/SMTP mailbox card. Parallel to the Outlook card — use this when
+ * you want to connect a Gmail / Fastmail / generic IMAP mailbox via
+ * App Password instead of going through Microsoft Graph OAuth.
+ * Only one mode is "active" at runtime (picked by OUTBOUND_MODE env);
+ * both connections can exist in the DB simultaneously.
+ */
+function ImapSmtpConnectionCard(): JSX.Element {
+  const qc = useQueryClient();
+  const status = useQuery({ queryKey: ['imap-smtp-status'], queryFn: getImapSmtpStatus });
+  const [mailboxAddress, setMailboxAddress] = useState('');
+  const [appPassword, setAppPassword] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [imapHost, setImapHost] = useState('imap.gmail.com');
+  const [imapPort, setImapPort] = useState(993);
+  const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
+  const [smtpPort, setSmtpPort] = useState(587);
+
+  const connect = useMutation({
+    mutationFn: () =>
+      connectImapSmtp({
+        mailboxAddress,
+        appPassword,
+        ...(showAdvanced
+          ? { imapHost, imapPort, smtpHost, smtpPort }
+          : {}),
+      }),
+    onSuccess: async () => {
+      setAppPassword('');
+      await qc.invalidateQueries({ queryKey: ['imap-smtp-status'] });
+    },
+  });
+
+  const disconnect = useMutation({
+    mutationFn: disconnectImapSmtp,
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['imap-smtp-status'] });
+    },
+  });
+
+  return (
+    <div className="border border-border rounded">
+      <header className="px-4 py-3 border-b border-border">
+        <h2 className="text-sm font-medium text-muted-foreground">
+          IMAP/SMTP mailbox (Gmail / Fastmail / etc., app-wide)
+        </h2>
+      </header>
+      <div className="p-4 text-sm space-y-3">
+        {status.isLoading && <p className="text-muted-foreground">Loading…</p>}
+        {status.data && <ImapSmtpStatusBlock data={status.data} />}
+
+        {!status.data?.connected && (
+          <div className="space-y-3 pt-1">
+            <div className="grid grid-cols-2 gap-2">
+              <label>
+                <span className="block text-xs text-muted-foreground mb-1">Mailbox address</span>
+                <input
+                  type="email"
+                  className="w-full border border-input rounded px-2 py-1.5 bg-background text-sm font-mono"
+                  placeholder="arrears.demo@gmail.com"
+                  value={mailboxAddress}
+                  onChange={(e) => setMailboxAddress(e.target.value)}
+                />
+              </label>
+              <label>
+                <span className="block text-xs text-muted-foreground mb-1">
+                  App Password
+                  <span className="ml-1 text-[10px]">(not your login password)</span>
+                </span>
+                <input
+                  type="password"
+                  className="w-full border border-input rounded px-2 py-1.5 bg-background text-sm font-mono"
+                  placeholder="16-char App Password"
+                  value={appPassword}
+                  onChange={(e) => setAppPassword(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+            <details
+              open={showAdvanced}
+              onToggle={(e) => setShowAdvanced((e.target as HTMLDetailsElement).open)}
+            >
+              <summary className="text-xs text-muted-foreground cursor-pointer">
+                Advanced (non-Gmail hosts)
+              </summary>
+              <div className="grid grid-cols-4 gap-2 mt-2">
+                <label className="col-span-2">
+                  <span className="block text-xs text-muted-foreground mb-1">IMAP host</span>
+                  <input
+                    type="text"
+                    className="w-full border border-input rounded px-2 py-1.5 bg-background text-sm font-mono"
+                    value={imapHost}
+                    onChange={(e) => setImapHost(e.target.value)}
+                  />
+                </label>
+                <label>
+                  <span className="block text-xs text-muted-foreground mb-1">IMAP port</span>
+                  <input
+                    type="number"
+                    className="w-full border border-input rounded px-2 py-1.5 bg-background text-sm font-mono"
+                    value={imapPort}
+                    onChange={(e) => setImapPort(Number(e.target.value))}
+                  />
+                </label>
+                <span />
+                <label className="col-span-2">
+                  <span className="block text-xs text-muted-foreground mb-1">SMTP host</span>
+                  <input
+                    type="text"
+                    className="w-full border border-input rounded px-2 py-1.5 bg-background text-sm font-mono"
+                    value={smtpHost}
+                    onChange={(e) => setSmtpHost(e.target.value)}
+                  />
+                </label>
+                <label>
+                  <span className="block text-xs text-muted-foreground mb-1">SMTP port</span>
+                  <input
+                    type="number"
+                    className="w-full border border-input rounded px-2 py-1.5 bg-background text-sm font-mono"
+                    value={smtpPort}
+                    onChange={(e) => setSmtpPort(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+            </details>
+            <button
+              type="button"
+              className="rounded bg-primary text-primary-foreground px-3 py-1.5 text-sm disabled:opacity-50"
+              disabled={connect.isPending || !mailboxAddress || !appPassword}
+              onClick={() => connect.mutate()}
+            >
+              {connect.isPending ? 'Probing IMAP + SMTP…' : 'Connect mailbox'}
+            </button>
+          </div>
+        )}
+
+        {status.data?.connected && (
+          <button
+            type="button"
+            className="rounded border border-destructive text-destructive px-3 py-1.5 text-sm disabled:opacity-50"
+            disabled={disconnect.isPending}
+            onClick={() => {
+              const ok = window.confirm(
+                'Disconnect IMAP/SMTP mailbox? Inbound polling and outbound send will stop until reconnected (in gmail mode).',
+              );
+              if (ok) disconnect.mutate();
+            }}
+          >
+            {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
+          </button>
+        )}
+
+        {connect.error && (
+          <p className="text-destructive text-xs">
+            {connect.error instanceof Error ? connect.error.message : 'Connect failed'}
+          </p>
+        )}
+        {disconnect.error && (
+          <p className="text-destructive text-xs">
+            {disconnect.error instanceof Error ? disconnect.error.message : 'Disconnect failed'}
+          </p>
+        )}
+
+        <p className="text-xs text-muted-foreground pt-1">
+          Tip: in Gmail, enable 2FA → Account → Security → 2-Step Verification → App passwords →
+          generate a 16-character password for "Mail". Use that here, not your login password.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ImapSmtpStatusBlock({ data }: { data: ImapSmtpStatus }): JSX.Element {
+  if (!data.connected) {
+    return (
+      <p className="text-muted-foreground">
+        Not connected. In <code>OUTBOUND_MODE=gmail</code> /{' '}
+        <code>INBOUND_MODE=gmail</code> mode, send + receive won't work until you connect a mailbox
+        below. (Mailhog / Outlook modes ignore this card.)
+      </p>
+    );
+  }
+  return (
+    <dl className="grid grid-cols-[140px_1fr] gap-y-1">
+      <dt className="text-muted-foreground">Mailbox</dt>
+      <dd className="font-mono">{data.mailboxAddress}</dd>
+      <dt className="text-muted-foreground">IMAP</dt>
+      <dd className="font-mono text-xs">
+        {data.imapHost}:{data.imapPort}
+      </dd>
+      <dt className="text-muted-foreground">SMTP</dt>
+      <dd className="font-mono text-xs">
+        {data.smtpHost}:{data.smtpPort}
+      </dd>
+      <dt className="text-muted-foreground">Connected by</dt>
+      <dd className="font-mono text-xs">{data.connectedByUserId}</dd>
+      <dt className="text-muted-foreground">Connected at</dt>
+      <dd>{fmtDate(data.connectedAt)}</dd>
+      <dt className="text-muted-foreground">Last used</dt>
+      <dd>{fmtDate(data.lastUsedAt)}</dd>
     </dl>
   );
 }
